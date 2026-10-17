@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+.AppleDouble
+
+# Xcode and Swift Package Manager
+DerivedData/
+build/
+.build/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# .NET and IDE user state
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+*.sln.iml
+*.DotSettings.user
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.mobileprovision
+
+# Generated outputs and playback diagnostics
+artifacts/
+*.log
+*.sock
+TestResults/
+coverage/
