@@ -1,4 +1,5 @@
 import Foundation
+import Matching
 import Observation
 import Playback
 
@@ -7,6 +8,7 @@ public final class ApplicationServices {
     let diagnostics = DiagnosticsModel()
     let shikimori = ShikimoriModel()
     let kinopubBrowser = KinopubBrowserModel()
+    let episodeMappings = EpisodeMappingStore()
 
     public init() {}
 

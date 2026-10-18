@@ -11,9 +11,9 @@ mpv process controlled through JSON IPC.
 - `Packages/BakaKit/`: a local Swift Package with separate targets:
   - `BakaUI`: native screens and presentation state.
   - `Accounts`: credential storage contracts and macOS Keychain access.
-  - `Kinopub`: browser-discovered media candidates and source identification.
+  - `Kinopub`: browser media discovery, catalog models/port and a signed-in WebKit search adapter.
   - `Catalog`: Shikimori catalog models.
-  - `Matching`: catalog mappings; depends on Catalog.
+  - `Matching`: title normalization, candidate resolution and saved season mappings; depends on Catalog and Kinopub.
   - `Playback`: playback and position models.
   - `Tracking`: resume state and progress; depends on Catalog and Playback.
   - `ShikimoriBridge`: typed API client, child-process transport and account lifecycle.
@@ -58,9 +58,10 @@ services own token rotation and Keychain persistence. See
 
 ## Future boundaries
 
-Introduce a Kinopub catalog/stream gateway,
-and narrow storage interfaces as their scenarios are implemented.
-SwiftData is the selected foundation for local persistence; Keychain stores
+The Kinopub catalog gateway is implemented for website search and item details.
+Introduce a stream gateway and further storage interfaces as their scenarios appear.
+SwiftData remains the intended foundation for playback/history persistence;
+confirmed title mappings currently use a small atomic JSON store. Keychain stores
 secrets. Synchronization must persist the intent to set absolute progress
 and explicitly resolve conflicts with remote changes.
 
@@ -82,5 +83,7 @@ Hardened runtime is configured, but Xcode disables it for ad-hoc signing.
 Developer ID signing, notarization, runtime distribution, and architecture
 verification are required before distribution. mpv and SVP are not bundled.
 
-Remaining work: native Kinopub search, active SVP validation, episode matching,
+Remaining work: automatic external alias lookup, sustained playback validation, episode-offset matching,
 and automatic tracking. Embedded libmpv requires a separate experiment.
+
+[Title matching, website search and saved destinations](title-matching.md).

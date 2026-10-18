@@ -18,7 +18,8 @@ Shikimori authentication is independent and lives in Settings > Accounts.
    data and stops its player; it does not affect Safari or another browser profile.
 
 This stage intentionally uses the website for search/episode selection. A native
-Kinopub catalog and automatic Shikimori-to-Kinopub matching are not implemented.
+Native Shikimori-to-Kinopub title search and saved season mappings are implemented;
+see [Title matching](title-matching.md).
 
 ## Isolation and extraction
 
@@ -102,3 +103,13 @@ progress is not yet written to Shikimori.
 
 References: [Apple WKWebView](https://developer.apple.com/documentation/webkit/wkwebview/),
 [mpv manual](https://mpv.io/manual/stable/).
+
+## SVP playback
+
+The native SVP switch starts installed SVP Manager and registers only the owned
+mpv session. Status is polled every two seconds and confirms the SVP filter plus
+an increased output frame rate before displaying Active. The switch applies to
+the next session. SVP profiles and target frame rates remain in SVP Manager.
+Local generated video was verified at 24 → 60 fps. A live HLS episode also
+confirmed video/audio and SVP interpolation at 23.98 → 59.94 fps after nearly one
+minute of startup. Sustained playback still needs verification. See [SVP setup and checks](playback.md#svp-integration).

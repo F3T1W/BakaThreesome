@@ -42,7 +42,12 @@ public sealed class ShikimoriAdapter
             case "anime.details":
                 Positive(p.AnimeID);
                 var detail = await client.Animes.GetAnime(p.AnimeID, token);
-                return new AnimeDetails(Summary(detail), detail.UserRate is { } rate ? Rate(rate, p.AnimeID) : null);
+                return new AnimeDetails(Summary(detail), detail.UserRate is { } rate ? Rate(rate, p.AnimeID) : null,
+                    new AnimeIdentity(detail.Id,
+                        new[] { detail.Name, detail.Russian, detail.LicenseNameRu }
+                            .Concat(detail.English ?? []).Concat(detail.Japanese ?? []).Concat(detail.Synonyms ?? [])
+                            .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().ToArray(),
+                        detail.AiredOn?.Year, detail.Kind ?? "unknown"));
             case "account.whoami":
                 Required(token);
                 var user = await client.Users.WhoAmI(token);
@@ -131,7 +136,8 @@ public sealed class ShikimoriAdapter
 
 public sealed record AnimeSummary(long Id, string Title, long Episodes, string Kind, double? CommunityScore);
 public sealed record UserRateSummary(long Id, long AnimeID, string Status, long Episodes, long Score);
-public sealed record AnimeDetails(AnimeSummary Anime, UserRateSummary? Rate);
+public sealed record AnimeIdentity(long Id, string[] Titles, int? Year, string Kind);
+public sealed record AnimeDetails(AnimeSummary Anime, UserRateSummary? Rate, AnimeIdentity Identity);
 public sealed record ListEntry(AnimeSummary Anime, UserRateSummary Rate);
 public sealed record UserProfile(long Id, string Nickname);
 public sealed record TokenPair(string AccessToken, string RefreshToken, long ExpiresAt);

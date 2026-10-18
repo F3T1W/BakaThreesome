@@ -33,4 +33,5 @@ public struct AnimeListEntry: Codable, Identifiable, Sendable {
 public struct AnimeDetails: Codable, Sendable {
     public let anime: AnimeSummary
     public let rate: AnimeUserRate?
+    public let identity: AnimeIdentity?
 }

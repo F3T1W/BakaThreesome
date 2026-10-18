@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import Kinopub
 import Observation
@@ -7,6 +8,11 @@ import WebKit
 @MainActor
 @Observable
 final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate {
+    var useSVP = UserDefaults.standard.object(forKey: "playback.useSVP") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(useSVP, forKey: "playback.useSVP") }
+    }
+    private(set) var websiteOrigin = URL(string: "https://gxux.pkr.ovh")!
+    private(set) var svpStatus = "SVP: Off"
     var audioSourceID: UUID?
     var address = "https://gxux.pkr.ovh"
     private(set) var candidates: [BrowserMediaCandidate] = []
@@ -17,12 +23,13 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     @ObservationIgnored private var allowedHost = "gxux.pkr.ovh"
     @ObservationIgnored private var player: MPVPlaybackEngine?
     @ObservationIgnored private var operation: Task<Void, Never>?
+    @ObservationIgnored private var monitor: Task<Void, Never>?
     @ObservationIgnored private var hasLoaded = false
 
     override init() {
         super.init()
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = WKWebsiteDataStore(forIdentifier: UUID(uuidString: "B6F18F2D-5753-42FA-9C66-A11A6DA94720")!)
+        configuration.websiteDataStore = KinopubWebsiteSession.dataStore()
         configuration.mediaTypesRequiringUserActionForPlayback = .all
         let controller = configuration.userContentController
         controller.add(WeakMediaHandler(self), contentWorld: .defaultClient, name: "bakaMedia")
@@ -47,12 +54,23 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
             errorMessage = "Enter an HTTPS website address without embedded credentials."
             return
         }
+        var origin = URLComponents()
+        origin.scheme = "https"; origin.host = host; origin.port = url.port
+        guard let base = origin.url else { return }
+        websiteOrigin = base
         allowedHost = host.lowercased()
         hasLoaded = true
         errorMessage = nil
         candidates = []
         audioSourceID = nil
         webView.load(URLRequest(url: url))
+    }
+
+    func openTitle(itemID: Int64, season: Int) {
+        guard itemID > 0, (0...999).contains(season) else { return }
+        let suffix = season > 0 ? "/s\(season)e1" : ""
+        address = websiteOrigin.appendingPathComponent("item/view/\(itemID)" + suffix).absoluteString
+        navigate()
     }
 
     func scan() {
@@ -130,15 +148,34 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         operation = Task {
             defer { isWorking = false; operation = nil }
             do {
-                guard let executable = PlaybackEnvironment.discover().mpvURL else { throw PlaybackError.playerNotFound }
+                monitor?.cancel()
+                await monitor?.value
+                let environment = PlaybackEnvironment.discover()
+                guard let executable = environment.mpvURL else { throw PlaybackError.playerNotFound }
+                let enableSVP = useSVP
+                if enableSVP {
+                    guard let svp = environment.svpURL,
+                          try await MPVCapabilityProbe(executable: executable).inspect().hasVapourSynth else {
+                        throw PlaybackError.svpUnavailable
+                    }
+                    let configuration = NSWorkspace.OpenConfiguration()
+                    configuration.activates = false
+                    do {
+                        _ = try await NSWorkspace.shared.openApplication(at: svp, configuration: configuration)
+                    } catch {
+                        throw PlaybackError.svpUnavailable
+                    }
+                }
                 await player?.stop()
-                let engine = MPVPlaybackEngine(executable: executable)
+                svpStatus = enableSVP ? "SVP: Waiting for video…" : "SVP: Off"
+                let engine = MPVPlaybackEngine(executable: executable, enableSVP: enableSVP)
                 player = engine
                 let userAgent = try await webView.evaluateJavaScript("navigator.userAgent") as? String
                 let source = try PlaybackSource(url: candidate.url, referrer: candidate.referrerOrigin,
                                                 userAgent: userAgent, audioURL: audioURL, origin: candidate.referrerOrigin)
                 try await engine.start()
                 try await engine.load(source)
+                startMonitoring(engine)
                 let deadline = ContinuousClock.now.advanced(by: .seconds(20))
                 while ContinuousClock.now < deadline {
                     let snapshot = try await engine.snapshot()
@@ -158,6 +195,9 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
                 }
                 throw PlaybackError.timedOut
             } catch {
+                monitor?.cancel()
+                await monitor?.value
+                svpStatus = "SVP: Off"
                 await player?.stop()
                 player = nil
                 status = "Playback did not start."
@@ -171,6 +211,9 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         guard operation == nil else { return }
         isWorking = true
         operation = Task {
+            monitor?.cancel()
+            await monitor?.value
+            svpStatus = "SVP: Off"
             await player?.stop()
             player = nil
             status = "Playback stopped."
@@ -184,6 +227,9 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         isWorking = true
         operation = Task {
             webView.stopLoading()
+            monitor?.cancel()
+            await monitor?.value
+            svpStatus = "SVP: Off"
             await player?.stop()
             player = nil
             candidates = []
@@ -201,9 +247,32 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     func shutdown() async {
         operation?.cancel()
         await operation?.value
+        monitor?.cancel()
+        await monitor?.value
         await player?.stop()
         player = nil
         webView.stopLoading()
+    }
+
+    private func startMonitoring(_ engine: MPVPlaybackEngine) {
+        monitor = Task { [weak self] in
+            do {
+                while !Task.isCancelled {
+                    let state = try await engine.interpolationStatus()
+                    switch state {
+                    case .disabled: self?.svpStatus = "SVP: Off"
+                    case .waiting: self?.svpStatus = "SVP: Waiting for interpolation. Check SVP Manager if this persists."
+                    case .connected: self?.svpStatus = "SVP: Filter connected; waiting for frame rate confirmation…"
+                    case .interpolating(let source, let output):
+                        self?.svpStatus = String(format: "SVP: Active · %.2f → %.2f fps", source, output)
+                    }
+                    try await Task.sleep(for: .seconds(2))
+                }
+            } catch is CancellationError {
+            } catch {
+                self?.svpStatus = "SVP: Player unavailable"
+            }
+        }
     }
 
     private func isAllowed(_ url: URL?) -> Bool {

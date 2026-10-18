@@ -6,17 +6,20 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let directory: OwnedTemporaryDirectory
         let process: ManagedProcess
         let connection: MPVConnection
+        let registration: SVPSocketRegistration?
     }
 
     private let executable: URL
     private let headless: Bool
+    private let enableSVP: Bool
     private var session: Session?
     private var ready = false
     private var stopTask: Task<Void, Never>?
 
-    public init(executable: URL, headless: Bool = false) {
+    public init(executable: URL, headless: Bool = false, enableSVP: Bool = false) {
         self.executable = executable
         self.headless = headless
+        self.enableSVP = enableSVP && !headless
     }
 
     public func start() async throws {
@@ -25,23 +28,31 @@ public actor MPVPlaybackEngine: PlaybackEngine {
             throw PlaybackError.playerNotFound
         }
         let directory = try OwnedTemporaryDirectory()
+        let registration: SVPSocketRegistration?
+        do {
+            registration = enableSVP ? try SVPSocketRegistration() : nil
+        } catch {
+            directory.remove()
+            throw error
+        }
         let socket = directory.url.appendingPathComponent("mpv.sock")
         var arguments = [
             "--no-config", "--idle=yes", "--force-window=no", "--terminal=no",
             "--input-terminal=no", "--no-resume-playback", "--hwdec=auto-copy",
-            "--hr-seek-framedrop=no", "--network-timeout=15",
+            "--hwdec-codecs=all", "--hr-seek-framedrop=no", "--network-timeout=15",
             "--demuxer-lavf-o=http_persistent=0,http_multiple=0",
             "--input-ipc-server=\(socket.path)"
         ]
         if headless { arguments += ["--vo=null", "--ao=null"] }
         let process: ManagedProcess
         do {
-            process = try ManagedProcess(executable: executable, arguments: arguments)
+            process = try ManagedProcess(executable: executable, arguments: arguments,
+                                         environment: enableSVP ? VapourSynthRuntime.environment() : [:])
         } catch {
             directory.remove()
             throw error
         }
-        let owned = Session(directory: directory, process: process, connection: MPVConnection())
+        let owned = Session(directory: directory, process: process, connection: MPVConnection(), registration: registration)
         session = owned
         do {
             try Task.checkCancellation()
@@ -73,11 +84,20 @@ public actor MPVPlaybackEngine: PlaybackEngine {
 
     public func load(_ source: PlaybackSource) async throws {
         let owned = try runningSession()
+        // Long HLS startup can make SVP classify an idle player as audio-only.
+        // Advertise only after file-loaded confirms that the media is ready.
+        owned.registration?.remove()
         let location = source.url.isFileURL ? source.url.path : source.url.absoluteString
         _ = try await owned.connection.request([
             .string("loadfile"), .string(location), .string("replace"), .number(-1), .object(source.mpvOptions)
         ], awaitFileLoaded: true)
         try ensureCurrent(owned.id)
+        if let registration = owned.registration, try await optionalString("video-codec") != nil {
+            let processID = await owned.process.identifier
+            try ensureCurrent(owned.id)
+            try Task.checkCancellation()
+            try registration.publish(socket: owned.directory.url.appendingPathComponent("mpv.sock"), processID: processID)
+        }
     }
 
     public func setPaused(_ paused: Bool) async throws {
@@ -108,6 +128,15 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         )
     }
 
+    public func interpolationStatus() async throws -> SVPInterpolationStatus {
+        _ = try runningSession()
+        guard enableSVP else { return .disabled }
+        let filters = try await command([.string("get_property"), .string("vf")])
+        let sourceFPS = try await optionalNumber("container-fps")
+        let outputFPS = try await optionalNumber("estimated-vf-fps")
+        return SVPInterpolationStatus.inspect(filters: filters, sourceFPS: sourceFPS, outputFPS: outputFPS)
+    }
+
     public func stop() async {
         if let stopTask {
             await stopTask.value
@@ -118,6 +147,7 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let task = Task {
             await owned.connection.close()
             await owned.process.stop()
+            owned.registration?.remove()
             owned.directory.remove()
         }
         stopTask = task

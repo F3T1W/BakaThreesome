@@ -1,4 +1,5 @@
 import Catalog
+import Matching
 import ShikimoriBridge
 import SwiftUI
 import Tracking
@@ -6,6 +7,7 @@ import Tracking
 struct AnimeLibraryView: View {
     let model: ShikimoriModel
     let isWatchlist: Bool
+    let onOpenKinopub: (AnimeSummary, Bool) -> Void
     @State private var query = ""
     @State private var submittedQuery = ""
     @State private var status: WatchStatus? = .watching
@@ -106,34 +108,43 @@ struct AnimeLibraryView: View {
     }
 
     private func animeRow(_ anime: AnimeSummary, rate: AnimeUserRate?) -> some View {
-        Button { selectedAnime = anime } label: {
-            HStack(spacing: 16) {
-                Image(systemName: "tv").font(.title2).foregroundStyle(.secondary)
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(anime.title).font(.headline)
-                    HStack {
-                        Text(anime.kind.uppercased())
-                        Text(anime.episodes > 0 ? "\(anime.episodes) episodes" : "Episode count unknown")
-                        if let score = anime.communityScore {
-                            Text("★ \(score, specifier: "%.2f")")
+        HStack(spacing: 12) {
+            Button { selectedAnime = anime } label: {
+                HStack(spacing: 16) {
+                    Image(systemName: "tv").font(.title2).foregroundStyle(.secondary)
+                        .frame(width: 36)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(anime.title).font(.headline)
+                        HStack {
+                            Text(anime.kind.uppercased())
+                            Text(anime.episodes > 0 ? "\(anime.episodes) episodes" : "Episode count unknown")
+                            if let score = anime.communityScore {
+                                Text("★ \(score, specifier: "%.2f")")
+                            }
+                        }
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if let rate {
+                        VStack(alignment: .trailing, spacing: 5) {
+                            Text(rate.status.title)
+                            Text("\(rate.episodes) watched · \(rate.score == 0 ? "Unrated" : "\(rate.score)/10")")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
                     }
-                    .font(.caption).foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
                 }
-                Spacer()
-                if let rate {
-                    VStack(alignment: .trailing, spacing: 5) {
-                        Text(rate.status.title)
-                        Text("\(rate.episodes) watched · \(rate.score == 0 ? "Unrated" : "\(rate.score)/10")")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                .padding(.vertical, 6).contentShape(Rectangle())
             }
-            .padding(.vertical, 6).contentShape(Rectangle())
+            .buttonStyle(.plain)
+            Button("Open in Kinopub", systemImage: "arrow.up.right") { onOpenKinopub(anime, true) }
+                .labelStyle(.iconOnly).buttonStyle(.glass)
+                .help("Find this anime on Kinopub")
         }
-        .buttonStyle(.plain)
+        .contextMenu {
+            Button("Open in Kinopub") { onOpenKinopub(anime, true) }
+            Button("Change Kinopub Match") { onOpenKinopub(anime, false) }
+        }
     }
 
     private func search() {

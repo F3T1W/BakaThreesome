@@ -32,6 +32,8 @@ public enum PlaybackError: Error, LocalizedError, Equatable {
     case propertyUnavailable
     case invalidMediaURL
     case invalidSeek
+    case svpUnavailable
+    case svpRegistrationFailed
 
     public var errorDescription: String? {
         switch self {
@@ -48,6 +50,8 @@ public enum PlaybackError: Error, LocalizedError, Equatable {
         case .commandRejected: "mpv could not complete the requested command."
         case .propertyUnavailable: "The requested player property is not available."
         case .invalidMediaURL: "Use a local file or an HTTP or HTTPS media URL."
+        case .svpUnavailable: "SVP requires the installed SVP Manager and an mpv build with VapourSynth. Disable SVP to play without interpolation."
+        case .svpRegistrationFailed: "SVP socket registration failed. Check the ownership and permissions of /tmp/mpvSockets, or disable SVP."
         case .invalidSeek: "The playback position must be a finite, nonnegative number."
         }
     }

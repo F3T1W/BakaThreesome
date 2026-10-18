@@ -67,8 +67,24 @@ The prototype discovers the primary HLS manifest from the video source element
 and starts it through Play Episode in mpv. One live authenticated episode was
 verified with simultaneous H.264 video and AAC audio. Browser cookies stay in
 WebKit; playback receives the signed URL and browser request headers. Long-session
-stability, cookie-dependent sources and SVP remain unverified.
+stability and cookie-dependent sources remain unverified.
+
+The SVP switch starts installed SVP Manager and advertises the app-owned player.
+Live status confirms its filter and measured input/output frame rates. Actual
+interpolation was verified on generated local video at 24 → 60 fps and a live
+Kinopub HLS episode at 23.98 → 59.94 fps. Global mpv/SVP settings are left unchanged.
 
 [Browser flow, limitations and verification](docs/kinopub-browser.md).
 
 [Getting started: Shikimori sign-in and episode playback](docs/getting-started.md).
+
+## Open Shikimori titles in Kinopub
+
+Watchlist and Catalog include Open in Kinopub. Matching tries Shikimori's title
+aliases, verifies available metadata, and opens a confident single-season result
+or asks you to choose a title and season. Confirmed links are saved locally;
+Change Kinopub Match replaces a saved destination. An alternative-title search
+and manual title URL are available when needed. Google lookup opens in the browser;
+automatic extraction of Google aliases is not implemented yet.
+
+[Matching behavior, setup and checks](docs/title-matching.md).

@@ -35,8 +35,8 @@ struct DiagnosticsView: View {
                 }
             }
             Section("SVP") {
-                LabeledContent("Frame interpolation", value: "Not verified")
-                Text("The player check uses no media and a private IPC socket. SVP interpolation must be verified separately during video playback.")
+                LabeledContent("Frame interpolation", value: "See live status in Kinopub")
+                Text("Enable SVP in Kinopub before starting an episode. The live status checks the VapourSynth filter and input/output frame rates. This player check uses no media and does not register with SVP.")
                     .foregroundStyle(.secondary)
             }
             Section("Integrations") {

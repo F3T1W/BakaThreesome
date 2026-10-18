@@ -48,11 +48,17 @@ Shikimori registration and code exchange follow the
    and survives app restarts. Clear Session removes this app's browser session.
 4. Search for the title on the Kinopub website, select a season and episode, and
    start the web player. Wait for its media source to load; you can then pause it.
-5. Choose Play Episode in mpv below the web view. The app finds the primary HLS
+5. Leave SVP enabled below the web view to start SVP Manager automatically, or
+   disable it to play without interpolation. The switch applies to the next session.
+   Choose Play Episode in mpv below the web view. The app finds the primary HLS
    source from the video's source element and passes its original URL to mpv with
    the current browser's User-Agent, Origin and Referer.
 6. mpv opens a separate video window. Use its playback controls for pause and seek.
    Stop mpv in BakaThreesome stops the player launched by this app.
+7. Watch the SVP status below the web view. `SVP: Active` shows measured input and
+   output frame rates, for example `24.00 → 60.00 fps`. If it stays waiting, check
+   SVP Manager for a disabled profile, minimum video duration or a runtime error.
+   Interpolation settings and target frame rate remain controlled by SVP Manager.
 
 Pause the web player to avoid simultaneous sound from the website and mpv.
 If Play Episode in mpv is missing, start the web player and choose Rescan.
@@ -60,15 +66,23 @@ The individual source list is a diagnostic fallback: it may include advertisemen
 subtitles, video-only playlists and audio-only playlists. Prefer the episode button.
 
 A short live episode check confirmed simultaneous video and audio. CDN timeouts
-were also observed; long-session stability and active SVP interpolation remain
-unverified. Reopen the episode and rescan if a signed source has expired.
+were also observed; long-session stability remains unverified. SVP interpolation
+was confirmed on a live episode at 23.98 → 59.94 fps and a generated local video
+at 24 → 60 fps. Live startup took nearly one minute. Reopen the episode and rescan if a signed source has expired.
 
 ## Current boundary
 
-Shikimori supplies catalog, lists, ratings and manual progress. Kinopub supplies
-website search and playback sources. Selecting a Shikimori title does not yet
-find or launch its Kinopub episode automatically. Automatic episode matching,
-resume persistence and progress updates from playback are future work.
+Use Open in Kinopub beside a title in Watchlist or Catalog to search by its
+Shikimori names. A confident single-season match opens immediately. Otherwise
+choose the correct card and season, then Save Match and Open. A saved link is
+reused on the next click; the row context menu offers Change Kinopub Match.
+The alternative-title section provides a Google search link, an extra title query
+and a manual Kinopub page option. Google alias extraction is currently manual.
+See [Title matching](title-matching.md) for behavior and limits.
+
+The destination opens on the website. Start its web player and use Play Episode
+in mpv to launch playback. Automatic episode offsets, resume persistence and
+progress updates from playback are future work.
 
 See [Shikimori details](shikimori-integration.md) and
 [Kinopub browser details](kinopub-browser.md) for implementation and verification.

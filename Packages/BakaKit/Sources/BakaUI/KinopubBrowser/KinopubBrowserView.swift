@@ -24,6 +24,10 @@ struct KinopubBrowserView: View {
                 HStack {
                     Text("Media Sources").font(.headline)
                     Spacer()
+                    Toggle("SVP", isOn: $model.useSVP)
+                        .toggleStyle(.switch).controlSize(.small)
+                        .fixedSize().disabled(model.isWorking)
+                        .help("Applies when starting the next playback session.")
                     if model.isWorking { ProgressView().controlSize(.small) }
                     Button("Rescan", systemImage: "magnifyingglass") { model.scan() }
                     Button("Stop mpv", systemImage: "stop.fill") { model.stop() }
@@ -32,6 +36,7 @@ struct KinopubBrowserView: View {
                         .disabled(model.isWorking)
                 }
                 .buttonStyle(.glass)
+                Text(model.svpStatus).font(.caption).foregroundStyle(.secondary)
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
                 if let error = model.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle")

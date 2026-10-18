@@ -7,9 +7,9 @@ let package = Package(
     products: [.library(name: "BakaUI", targets: ["BakaUI"])],
     targets: [
         .target(name: "Accounts"),
-        .target(name: "Kinopub"),
+        .target(name: "Kinopub", resources: [.process("Resources")]),
         .target(name: "Catalog"),
-        .target(name: "Matching", dependencies: ["Catalog"]),
+        .target(name: "Matching", dependencies: ["Catalog", "Kinopub"]),
         .target(name: "Playback"),
         .target(name: "Tracking", dependencies: ["Catalog", "Playback"]),
         .target(name: "ShikimoriBridge", dependencies: ["Accounts", "Catalog", "Tracking"]),
@@ -21,6 +21,7 @@ let package = Package(
         .testTarget(name: "ShikimoriBridgeTests", dependencies: ["ShikimoriBridge", "Accounts", "Tracking"]),
         .testTarget(name: "PlaybackTests", dependencies: ["Playback"]),
         .testTarget(name: "KinopubTests", dependencies: ["Kinopub"]),
-        .testTarget(name: "AccountsTests", dependencies: ["Accounts"])
+        .testTarget(name: "AccountsTests", dependencies: ["Accounts"]),
+        .testTarget(name: "MatchingTests", dependencies: ["Matching", "Catalog", "Kinopub"])
     ]
 )

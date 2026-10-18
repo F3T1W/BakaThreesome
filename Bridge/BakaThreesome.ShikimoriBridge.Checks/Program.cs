@@ -26,6 +26,10 @@ using var handler = new StubHandler(async request =>
         Check(request.RequestUri.Query.Contains("page=2"), "Pagination query");
         return (HttpStatusCode.OK, """[{"id":1,"name":"Example","episodes":12,"kind":"tv","score":"8.25"}]""");
     }
+    if (path == "/api/animes/1")
+    {
+        return (HttpStatusCode.OK, """{"id":1,"name":"Original Title","russian":"Localized Title","english":["English Title"],"japanese":["Japanese Title"],"synonyms":["Alternative Title"],"license_name_ru":"Licensed Title","aired_on":"2002-10-03","episodes":12,"kind":"tv"}""");
+    }
     if (path == "/api/users/42/anime_rates")
     {
         Check(request.RequestUri.Query.Contains("status=on_hold"), "List filter query");
@@ -56,6 +60,9 @@ using var http = new HttpClient(handler);
 var adapter = new ShikimoriAdapter(http);
 var search = (AnimeSummary[])await adapter.Execute(Request("catalog.search", new { query = "A & B/+?", page = 2 }));
 Check(search is [{ Id: 1, Episodes: 12, CommunityScore: 8.25 }], "Normalized catalog");
+var details = (AnimeDetails)await adapter.Execute(Request("anime.details", new { animeID = 1 }));
+Check(details.Identity.Year == 2002 && details.Identity.Kind == "tv", "Matching identity metadata");
+Check(details.Identity.Titles.Length == 6 && details.Identity.Titles.Contains("Alternative Title"), "All title aliases survive the bridge");
 var list = (ListEntry[])await adapter.Execute(Request("watchlist.list", new { userID = 42, status = "on_hold", accessToken = "test-access" }));
 Check(list is [{ Rate.Id: 7000000000, Rate.Status: "on_hold" }], "Normalized list and long IDs");
 foreach (long? id in new long?[] { null, 7000000000 })

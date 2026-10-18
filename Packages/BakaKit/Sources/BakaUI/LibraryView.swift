@@ -1,3 +1,4 @@
+import Catalog
 import SwiftUI
 
 private enum LibrarySection: String, CaseIterable, Identifiable {
@@ -22,6 +23,8 @@ private enum LibrarySection: String, CaseIterable, Identifiable {
 
 public struct LibraryView: View {
     @State private var selection: LibrarySection? = .resume
+    @State private var matchingAnime: AnimeSummary?
+    @State private var useSavedMatch = true
     private let services: ApplicationServices
 
     public init(services: ApplicationServices = ApplicationServices()) {
@@ -46,9 +49,9 @@ public struct LibraryView: View {
                         description: Text("Episodes you have started watching will appear here.")
                     )
                 case .watchlist:
-                    AnimeLibraryView(model: services.shikimori, isWatchlist: true).id(LibrarySection.watchlist)
+                    AnimeLibraryView(model: services.shikimori, isWatchlist: true, onOpenKinopub: findKinopub).id(LibrarySection.watchlist)
                 case .catalog:
-                    AnimeLibraryView(model: services.shikimori, isWatchlist: false).id(LibrarySection.catalog)
+                    AnimeLibraryView(model: services.shikimori, isWatchlist: false, onOpenKinopub: findKinopub).id(LibrarySection.catalog)
                 case .kinopub:
                     KinopubBrowserView(model: services.kinopubBrowser)
                 case .diagnostics:
@@ -66,6 +69,18 @@ public struct LibraryView: View {
         }
         .frame(minWidth: 780, minHeight: 520)
         .task { await services.shikimori.restore() }
+        .sheet(item: $matchingAnime) { anime in
+            KinopubMatchSheet(anime: anime, client: services.shikimori.client, store: services.episodeMappings,
+                              origin: services.kinopubBrowser.websiteOrigin, useSaved: useSavedMatch) { mapping in
+                services.kinopubBrowser.openTitle(itemID: mapping.kinopubItemID, season: mapping.season)
+                selection = .kinopub
+            }
+        }
+    }
+
+    private func findKinopub(_ anime: AnimeSummary, useSaved: Bool) {
+        useSavedMatch = useSaved
+        matchingAnime = anime
     }
 
 }

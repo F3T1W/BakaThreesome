@@ -7,9 +7,10 @@ actor ManagedProcess {
     private var exitStatus: Int32?
     private var waiters: [UUID: CheckedContinuation<Int32?, Never>] = [:]
 
-    init(executable: URL, arguments: [String], outputURL: URL? = nil) throws {
+    init(executable: URL, arguments: [String], outputURL: URL? = nil, environment: [String: String] = [:]) throws {
         process.executableURL = executable
         process.arguments = arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, value in value }
         process.standardInput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
         if let outputURL {
@@ -40,6 +41,7 @@ actor ManagedProcess {
     }
 
     var isRunning: Bool { process.isRunning }
+    var identifier: Int32 { process.processIdentifier }
 
     func waitForExit(timeout: Duration) async -> Int32? {
         if let exitStatus { return exitStatus }
