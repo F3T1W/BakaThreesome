@@ -16,6 +16,7 @@ let package = Package(
             name: "BakaUI",
             dependencies: ["Accounts", "Catalog", "Matching", "Playback", "Tracking", "ShikimoriBridge"]
         ),
-        .testTarget(name: "ShikimoriBridgeTests", dependencies: ["ShikimoriBridge"])
+        .testTarget(name: "ShikimoriBridgeTests", dependencies: ["ShikimoriBridge"]),
+        .testTarget(name: "PlaybackTests", dependencies: ["Playback"])
     ]
 )

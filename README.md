@@ -38,3 +38,12 @@ From the project root:
 Built application: `artifacts/DerivedData/Build/Products/Debug/BakaThreesome.app`
 
 [Architecture and module boundaries](docs/architecture.md).
+
+## Current playback status
+
+Diagnostics verifies the installed mpv version, VapourSynth availability, process
+launch, and JSON IPC control. The playback adapter supports loading, pause, seek,
+and position snapshots. Kinopub streams and active SVP interpolation are not
+verified by this check.
+
+[Playback foundation and real-player checks](docs/playback.md).

@@ -1,0 +1,52 @@
+import Foundation
+
+public protocol PlaybackEngine: Sendable {
+    func start() async throws
+    func load(_ url: URL) async throws
+    func setPaused(_ paused: Bool) async throws
+    func seek(to seconds: Double) async throws
+    func snapshot() async throws -> PlaybackSnapshot
+    func stop() async
+}
+
+public struct PlaybackSnapshot: Sendable {
+    public let isPaused: Bool
+    public let isIdle: Bool
+    public let position: PlaybackPosition
+}
+
+public enum PlaybackError: Error, LocalizedError, Equatable {
+    case playerNotFound
+    case launchFailed
+    case probeFailed
+    case timedOut
+    case alreadyRunning
+    case notRunning
+    case exitedBeforeReady
+    case connectionUnavailable
+    case disconnected
+    case invalidResponse
+    case commandRejected
+    case propertyUnavailable
+    case invalidMediaURL
+    case invalidSeek
+
+    public var errorDescription: String? {
+        switch self {
+        case .playerNotFound: "mpv was not found. Install mpv or check its executable location."
+        case .launchFailed: "mpv could not be launched. Check the executable and its dependencies."
+        case .probeFailed: "mpv did not complete the compatibility check."
+        case .timedOut: "mpv did not respond within the time limit."
+        case .alreadyRunning: "A player session is already active."
+        case .notRunning: "The player session is not running."
+        case .exitedBeforeReady: "mpv exited before its IPC connection was ready."
+        case .connectionUnavailable: "The player IPC connection is not available."
+        case .disconnected: "The player IPC connection was closed."
+        case .invalidResponse: "mpv returned an unexpected IPC response."
+        case .commandRejected: "mpv could not complete the requested command."
+        case .propertyUnavailable: "The requested player property is not available."
+        case .invalidMediaURL: "Use a local file or an HTTP or HTTPS media URL."
+        case .invalidSeek: "The playback position must be a finite, nonnegative number."
+        }
+    }
+}

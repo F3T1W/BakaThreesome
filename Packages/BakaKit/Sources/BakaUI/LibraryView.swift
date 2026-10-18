@@ -20,8 +20,11 @@ private enum LibrarySection: String, CaseIterable, Identifiable {
 
 public struct LibraryView: View {
     @State private var selection: LibrarySection? = .resume
+    private let services: ApplicationServices
 
-    public init() {}
+    public init(services: ApplicationServices = ApplicationServices()) {
+        self.services = services
+    }
 
     public var body: some View {
         NavigationSplitView {
@@ -51,7 +54,7 @@ public struct LibraryView: View {
                         message: "Search will be available after ShikimoriSharp is connected."
                     )
                 case .diagnostics:
-                    DiagnosticsView()
+                    DiagnosticsView(model: services.diagnostics)
                 }
             }
             .navigationTitle((selection ?? .resume).rawValue)

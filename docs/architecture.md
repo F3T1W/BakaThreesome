@@ -53,11 +53,16 @@ Do not assume end users have dotnet installed.
 
 ## Future boundaries
 
-Introduce ShikimoriGateway, KinopubGateway, PlaybackEngine, CredentialStore,
+Introduce ShikimoriGateway, KinopubGateway, CredentialStore,
 and narrow storage interfaces as their scenarios are implemented.
 SwiftData is the selected foundation for local persistence; Keychain stores
 secrets. Synchronization must persist the intent to set absolute progress
 and explicitly resolve conflicts with remote changes.
+
+PlaybackEngine and its external mpv adapter are now implemented. The application
+composition owns diagnostics, and an AppKit termination delegate waits for
+diagnostic cleanup on Quit. See [Playback foundation](playback.md) for current
+behavior, verification, and remaining work.
 
 ## Distribution
 
