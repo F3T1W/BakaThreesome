@@ -2,5 +2,6 @@
   <Folder Name="/Bridge/">
     <Project Path="Bridge/BakaThreesome.Bridge.Contracts/BakaThreesome.Bridge.Contracts.csproj" />
     <Project Path="Bridge/BakaThreesome.ShikimoriBridge/BakaThreesome.ShikimoriBridge.csproj" />
+    <Project Path="Bridge/BakaThreesome.ShikimoriBridge.Checks/BakaThreesome.ShikimoriBridge.Checks.csproj" />
   </Folder>
 </Solution>

@@ -10,15 +10,18 @@ mpv process controlled through JSON IPC.
 - `macOS/`: application entry point and dependency composition.
 - `Packages/BakaKit/`: a local Swift Package with separate targets:
   - `BakaUI`: native screens and presentation state.
-  - `Accounts`: service accounts.
+  - `Accounts`: credential storage contracts and macOS Keychain access.
+  - `Kinopub`: browser-discovered media candidates and source identification.
   - `Catalog`: Shikimori catalog models.
   - `Matching`: catalog mappings; depends on Catalog.
   - `Playback`: playback and position models.
   - `Tracking`: resume state and progress; depends on Catalog and Playback.
-  - `ShikimoriBridge`: Swift contracts for the .NET boundary.
+  - `ShikimoriBridge`: typed API client, child-process transport and account lifecycle.
 - `BakaThreesome.slnx`: the .NET solution:
   - `BakaThreesome.Bridge.Contracts`: the JSON v1 contract.
-  - `BakaThreesome.ShikimoriBridge`: the child console process.
+  - `BakaThreesome.ShikimoriBridge`: the child console process and ShikimoriSharp adapter.
+  - `BakaThreesome.ShikimoriBridge.Checks`: synthetic HTTP contract checks.
+- `Vendor/ShikimoriSharp`: attributed MIT source adaptation, isolated from app code.
 
 Domain code does not depend on SwiftUI or AppKit. External service DTOs must
 not become domain models. Introduce implementations and protocols alongside
@@ -41,19 +44,21 @@ system text in the app's content.
 
 ## Swift / .NET boundary
 
-One JSON line per request and response. Request fields: version, id, method.
-Responses preserve the request ID and contain either result or error.
-Reserve stdout for the protocol. The only current capability is handshake;
-authentication and API calls are not implemented.
+One JSON line per request and response. Request fields: version, id, method and
+parameters. Responses preserve the request ID and contain either result or error.
+Reserve stdout for the protocol. Capabilities cover handshake, public catalog,
+anime details, OAuth tokens/profile and signed-in list reads/writes.
 Never pass secrets as process arguments or write them to logs.
 
-The Swift transport, helper lifecycle, and ShikimoriSharp integration are not
-implemented yet. Bundling the helper and .NET runtime is a separate task.
-Do not assume end users have dotnet installed.
+The serial Swift transport owns and bounds the helper lifecycle. Xcode embeds
+the helper and dependency/license files; the local .NET 10 runtime is still
+required. Self-contained runtime distribution is not implemented. Swift account
+services own token rotation and Keychain persistence. See
+[Shikimori integration](shikimori-integration.md) for supported behavior and checks.
 
 ## Future boundaries
 
-Introduce ShikimoriGateway, KinopubGateway, CredentialStore,
+Introduce a Kinopub catalog/stream gateway,
 and narrow storage interfaces as their scenarios are implemented.
 SwiftData is the selected foundation for local persistence; Keychain stores
 secrets. Synchronization must persist the intent to set absolute progress
@@ -61,8 +66,14 @@ and explicitly resolve conflicts with remote changes.
 
 PlaybackEngine and its external mpv adapter are now implemented. The application
 composition owns diagnostics, and an AppKit termination delegate waits for
-diagnostic cleanup on Quit. See [Playback foundation](playback.md) for current
+diagnostic and account/helper cleanup on Quit. See [Playback foundation](playback.md) for current
 behavior, verification, and remaining work.
+
+CredentialStore and the Shikimori account service manage secrets through Keychain.
+Kinopub sign-in uses a separate persistent WebKit browser session. Application
+composition shares these services between windows and waits for account, browser,
+and player cleanup on Quit. See [Kinopub browser](kinopub-browser.md) and
+[Getting started](getting-started.md) for the current user flow.
 
 ## Distribution
 
@@ -71,5 +82,5 @@ Hardened runtime is configured, but Xcode disables it for ad-hoc signing.
 Developer ID signing, notarization, runtime distribution, and architecture
 verification are required before distribution. mpv and SVP are not bundled.
 
-Implementation order: stream retrieval, mpv/SVP, ShikimoriSharp, catalog and
-matching, then tracking. Embedded libmpv requires a separate experiment.
+Remaining work: native Kinopub search, active SVP validation, episode matching,
+and automatic tracking. Embedded libmpv requires a separate experiment.

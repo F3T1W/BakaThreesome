@@ -1,92 +1,96 @@
-# ShikimoriSharp Integration
+# Shikimori catalog and tracking
 
-Inspected on October 17, 2026, at upstream commit
-`85491770f5e001eed2f266a9c5c5a6286fdd9c02`.
-This was a static source review. The library was not built and no requests
-were made using a user account.
+The native app uses ShikimoriSharp by JustRoxy through a private .NET child process.
+The adapted source, original MIT license, source commit and patch list are in
+[Vendor/ShikimoriSharp](../Vendor/ShikimoriSharp/PATCHES.md).
 
-## Decisions and integration proposal
+## Available behavior
 
-- Application name: BakaThreesome.
-- ShikimoriSharp is the selected integration foundation; a fork is acceptable
-  when required.
-- Swift remains the preferred UI language. The library is written in C# and
-  targets netstandard2.1; it cannot be imported directly as a Swift Package.
-- Proposed approach: a small .NET child process running ShikimoriSharp,
-  communicating through JSON over stdin/stdout. This integration is not
-  verified yet. It requires process management, an error protocol,
-  architecture-specific builds, and a .NET runtime distribution strategy.
-  NativeAOT compatibility with the current dependencies is not confirmed.
-- The interface remains native. A local HTTP server is unnecessary for this
-  bridge. Swift owns Keychain access. Secrets must not appear in process
-  arguments or diagnostic output.
+- Public ranked catalog and submitted title search, 30 entries per page.
+- Signed-in anime lists: Watching, Planned, Completed, On Hold, Dropped and Rewatching.
+  All Lists combines statuses; each page contains up to 50 entries.
+- Opening a title loads its current user rate before enabling edits.
+- Add a title, set an absolute watched episode count, change status, and rate 1–10.
+  Unrated sets the score to 0. A successful save refreshes the watchlist.
+- Statuses and scores change only after an explicit Save. No automatic completion,
+  playback tracking, offline queue, conflict merge, or custom named playlists yet.
+- Continue Watching remains a playback placeholder; it does not duplicate Watching.
 
-## Findings in the source
+These lists are Shikimori status lists, not Kinopub playlists or collections.
+The REST endpoints used here are supported but documented as deprecated by
+Shikimori. GraphQL is the next catalog adapter option, especially for posters:
+new poster uploads are available only through GraphQL. Posters are not requested
+by this version.
 
-- Anime search and details: `Information/Animes.cs`.
-- OAuth code exchange and token refresh: `AuthorizationManager.cs`;
-  token updates are exposed through `OnNewToken` in `ApiClient.cs`.
-- Reading, creating, and updating user entries:
-  `UpdatableInformation/UserRates.cs`; the `episodes` field is defined in
-  `Settings/UserRateSettings.cs`.
-- Rate limiting: `ApiClient.cs` specifies 5 requests per second and
-  90 requests per minute. These are implementation values, not an independent
-  verification of the current API rules.
-- License: MIT, Copyright (c) 2020 JustRoxy.
+## Local sign-in
 
-The presence of these methods does not establish compatibility with the current API.
+1. Open [Shikimori applications](https://shikimori.io/oauth/applications) and create
+   an application named `BakaThreesome`.
+2. Use redirect URI `urn:ietf:wg:oauth:2.0:oob` and the `user_rates` permission.
+3. In Settings > Accounts > Shikimori, enter the client ID and secret locally.
+4. Choose Authorize in Browser, approve access on Shikimori, then paste its
+   authorization code into the app and choose Connect Shikimori.
 
-## Potential fork changes
+The client name is also the required HTTP User-Agent. The browser receives only
+the client ID, redirect URI, response type and scope. The secret and code are
+sent in the token request body to Shikimori, never in command-line arguments.
+The manual authorization-code flow follows the service's documented OOB flow;
+it does not use an automatic URL callback.
 
-1. Confirmed in the source: `ApiClient.RequestTokenRefreshing` logs the refresh
-   token at Information level. Remove the secret value before enabling regular
-   application logging.
-2. Verify user rate contracts: methods for fetching one entry, creating an entry,
-   and updating an entry deserialize arrays. Compare them with current API responses.
-3. Verify HTTP methods: `Increment` and `DeleteUserRate` do not specify a method
-   explicitly, while the low-level client defaults to GET. Check the documentation.
-4. Verify token refresh handling: the implementation refreshes after both 401
-   and 400 responses. The inspected methods do not coordinate concurrent refreshes.
-5. Verify retries for modifying requests: the shared retry policy covers network
-   errors. Prefer setting an absolute episode count and reading the state back;
-   retrying an increment could apply the change twice.
+The complete client credentials, access/refresh token pair, expiry and profile
+are stored in the login Keychain under the separate `shikimori-session` item.
+Tokens are refreshed before expiry. Concurrent callers share rotation; a failed
+Keychain write retains the rotated pair in memory so retrying persistence does
+not consume another refresh token. Tokens are persisted before profile lookup.
+Sign Out waits for a pending refresh, then removes this app's local credentials.
+It does not revoke the OAuth grant remotely. Revoke access on Shikimori separately.
+Do not put credentials or authorization codes in repository files or chat.
 
-Items 2 through 5 require contract verification and reproduction before changing
-upstream code. The library has not been modified in this workspace, and no GitHub
-fork has been created.
+## Process boundary and failure behavior
 
-## Attribution
+Xcode's Embed Shikimori Helper phase publishes the .NET helper and license notices
+into `Contents/Resources/Bridge`. Xcode's `TARGETNAME` environment variable is
+removed for MSBuild to preserve distinct assembly names. The current development
+build requires a local .NET 10 runtime; this is not a standalone distribution.
 
-The README contains permanent acknowledgments with upstream links. When bundling
-the dependency, include its license in third-party notices and add application
-credits. A suitable integration commit subject is:
+Swift owns one lazy process per ApplicationServices instance. JSON lines over
+private stdin/stdout pipes carry version, UUID request ID, method and parameters.
+The transport serializes requests off MainActor, frames partial reads, verifies
+response IDs, limits request/response sizes, and bounds I/O to 25 seconds. HTTP
+requests have a 15-second timeout and share the library's rate limit buckets.
+Redirects/cookies, secret logging, implicit refresh and implicit write retries
+are disabled. Errors exposed to the UI use fixed messages, not server bodies.
 
-`feat(shikimori): integrate ShikimoriSharp by JustRoxy`
+Navigation may cancel reads and stop their helper. Token operations and writes
+finish once started so returned tokens or mutation results are not discarded
+just because a view closes. Application shutdown waits for active account/save
+operations and then stops its helper. A failed/uncertain write disables another
+save until current progress is reloaded; it might already have reached the server.
+Concurrent edits from other clients are not versioned: explicit saves use the
+server's normal last-write behavior.
 
-Include the upstream URL and exact revision in the commit body. A commit message
-does not notify the author by itself. Contacting the author or sending a PR requires
-an explicit user request. Use Co-authored-by only for actual coauthorship.
+## Verification
 
-## Next checks
+`./scripts/check.sh` runs language checks, .NET builds, fake-HTTP adapter checks,
+helper protocol recovery, and Swift tests. Shikimori tests cover numeric IDs,
+protected writes, response correlation, safe errors, corrupt storage, refresh
+coalescing, rotated-token persistence retry, logout during rotation, and real
+pipe framing/process restart using a local synthetic helper.
 
-1. Verify documented OAuth and user rate contracts, remove secret logging, and
-   check deserialization against sanitized responses.
-2. Exercise a small Swift to .NET to ShikimoriSharp search call and verify child
-   process termination. Account requests and progress writes need separate checks.
-3. Address the main playback risk first: retrieve a fresh Kinopub stream through
-   the API, launch mpv, and confirm SVP. Kinopub documentation requires application
-   client_id/client_secret credentials issued by support. An account subscription
-   alone does not confirm that these credentials are available.
+Public search and unauthenticated anime details were verified against the live
+API on 2026-10-18 through the packaged helper. Native catalog search, signed-out
+tracking sheet and account settings were also checked in the running app.
+Real OAuth authorization, private lists, and create/update on a user's account
+remain unverified until credentials are entered locally. Contract tests use only
+synthetic tokens and do not alter any remote account.
 
-## Sources
+References: [official OAuth guide](https://shikimori.io/oauth),
+[API documentation](https://shikimori.io/api/doc).
 
-- [Inspected source revision](https://github.com/JustRoxy/ShikimoriSharp/tree/85491770f5e001eed2f266a9c5c5a6286fdd9c02).
-- [License](https://github.com/JustRoxy/ShikimoriSharp/blob/85491770f5e001eed2f266a9c5c5a6286fdd9c02/LICENSE).
-- [Documented Kinopub authentication](https://kinoapi.com/authentication.html).
-- [mpv process control and JSON IPC](https://mpv.io/manual/stable/).
-- [SVP requirements for mpv](https://www.svp-team.com/wiki/SVP:mpv).
+## Attribution in version control
 
-IINA documentation contains a historical example of SVP with libmpv, but
-[Use SVP with IINA](https://github.com/iina/iina/wiki/Use-SVP-with-IINA)
-was edited in 2020. It establishes that this approach existed, not that a future
-BakaThreesome build will work on current macOS versions.
+The README and app credits retain the upstream link and author. A suitable commit
+subject is `feat(shikimori): integrate ShikimoriSharp by JustRoxy`; include the
+upstream URL and exact revision in its body. A commit alone does not notify the
+author. Use Co-authored-by only for actual coauthorship. No public fork or upstream
+message has been created as part of this integration.

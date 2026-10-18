@@ -5,10 +5,14 @@ import Playback
 @MainActor
 public final class ApplicationServices {
     let diagnostics = DiagnosticsModel()
+    let shikimori = ShikimoriModel()
+    let kinopubBrowser = KinopubBrowserModel()
 
     public init() {}
 
     public func shutdown() async {
+        await kinopubBrowser.shutdown()
+        await shikimori.shutdown()
         await diagnostics.shutdown()
     }
 }

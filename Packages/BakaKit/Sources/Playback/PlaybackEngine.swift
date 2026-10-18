@@ -2,7 +2,7 @@ import Foundation
 
 public protocol PlaybackEngine: Sendable {
     func start() async throws
-    func load(_ url: URL) async throws
+    func load(_ source: PlaybackSource) async throws
     func setPaused(_ paused: Bool) async throws
     func seek(to seconds: Double) async throws
     func snapshot() async throws -> PlaybackSnapshot
@@ -13,6 +13,8 @@ public struct PlaybackSnapshot: Sendable {
     public let isPaused: Bool
     public let isIdle: Bool
     public let position: PlaybackPosition
+    public let videoCodec: String?
+    public let audioCodec: String?
 }
 
 public enum PlaybackError: Error, LocalizedError, Equatable {
@@ -48,5 +50,11 @@ public enum PlaybackError: Error, LocalizedError, Equatable {
         case .invalidMediaURL: "Use a local file or an HTTP or HTTPS media URL."
         case .invalidSeek: "The playback position must be a finite, nonnegative number."
         }
+    }
+}
+
+public extension PlaybackEngine {
+    func load(_ url: URL) async throws {
+        try await load(PlaybackSource(url: url))
     }
 }

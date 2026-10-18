@@ -58,8 +58,12 @@ IPC media control, not video rendering or SVP.
 - SVP socket discovery/configuration still needs a dedicated experiment.
   The private diagnostic socket is intentionally not registered with SVP.
   Concurrent SVP playback is not implemented.
-- No Kinopub authentication, stream acquisition, header selection, video UI,
+- Experimental browser media discovery and per-file User-Agent/Referer are now
+  available; see [Kinopub browser](kinopub-browser.md). One live Kinopub episode has been verified with video and audio; cookie transfer
+  is not implemented. Long-session stability and SVP remain unverified. No integrated native video UI,
   track selection, persistence, automatic stream recovery, or Shikimori updates.
+  Kinopub website sign-in and playback are described in
+  [Kinopub browser](kinopub-browser.md).
 - Position is read on demand. Property subscriptions and a playback event stream
   will be added with the actual playback session and tracking use cases.
 - Forced application termination cannot run orderly async cleanup. Normal Quit
@@ -70,3 +74,13 @@ IPC media control, not video rendering or SVP.
 
 - [mpv stable manual: JSON IPC, commands, properties, and options](https://mpv.io/manual/stable/).
 - [SVP mpv integration: VapourSynth, IPC, and copy-back decoding](https://www.svp-team.com/wiki/SVP:mpv).
+
+## Browser stream verification
+
+The primary Kinopub HLS source is read from the video source element and passed
+unchanged over IPC. Browser-derived User-Agent, Origin and Referer are per-file
+options. Loading waits for file-loaded or an error event with a cancellable
+60-second startup deadline; ordinary commands retain their two-second limit.
+One live episode was verified with simultaneous H.264/AAC playback and advancing
+position. Intermittent CDN TLS timeouts were observed; long-session stability and
+active SVP interpolation are still unverified. See [Kinopub browser](kinopub-browser.md).

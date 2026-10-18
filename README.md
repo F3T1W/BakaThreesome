@@ -3,18 +3,19 @@
 A native macOS anime streaming app integrating Shikimori, Kinopub, and SVP
 
 The interface uses SwiftUI, with AppKit where window management or system
-integration requires it. The first playback prototype will control an external
-mpv process through JSON IPC. Stream retrieval and SVP connectivity come first,
-followed by the catalog, episode matching, and progress synchronization
+integration requires it. An external mpv process is controlled through JSON IPC.
+Shikimori catalog and manual tracking are connected; Kinopub stream retrieval,
+episode matching, and automatic playback synchronization are still in progress.
 
 ## Acknowledgments
 
-The selected foundation for Shikimori integration is
+Shikimori integration uses
 [ShikimoriSharp](https://github.com/JustRoxy/ShikimoriSharp), a C#/.NET API client
 by [JustRoxy](https://github.com/JustRoxy). Thank's, Akari ;3
 
-The library is not connected yet. General-purpose fixes can be proposed upstream
-When distributing the library, include its MIT license and copyright notice:
+The vendored adaptation preserves its MIT license and copyright notice and ships
+them with the helper. [Source provenance and local patches](Vendor/ShikimoriSharp/PATCHES.md).
+General-purpose fixes can be proposed upstream.
 
 Copyright (c) 2020 JustRoxy
 
@@ -47,3 +48,27 @@ and position snapshots. Kinopub streams and active SVP interpolation are not
 verified by this check.
 
 [Playback foundation and real-player checks](docs/playback.md).
+
+## Shikimori catalog and tracking
+
+Catalog supports live public search. Connect Shikimori in Settings > Accounts to
+browse status lists, add titles, update watched episodes, and set your rating.
+Credentials and session tokens are saved in Keychain. Register your Shikimori
+application through its application page.
+The .NET helper is embedded by Xcode; the development app still needs a local
+.NET 10 runtime. Live sign-in and writes require local account verification.
+
+[Shikimori setup, behavior and verification](docs/shikimori-integration.md).
+
+## Kinopub website prototype
+
+Open Kinopub in the sidebar to sign in directly on the website.
+The prototype discovers the primary HLS manifest from the video source element
+and starts it through Play Episode in mpv. One live authenticated episode was
+verified with simultaneous H.264 video and AAC audio. Browser cookies stay in
+WebKit; playback receives the signed URL and browser request headers. Long-session
+stability, cookie-dependent sources and SVP remain unverified.
+
+[Browser flow, limitations and verification](docs/kinopub-browser.md).
+
+[Getting started: Shikimori sign-in and episode playback](docs/getting-started.md).

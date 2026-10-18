@@ -71,13 +71,13 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         }
     }
 
-    public func load(_ url: URL) async throws {
-        guard url.isFileURL || ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            throw PlaybackError.invalidMediaURL
-        }
-        _ = try await command([
-            .string("loadfile"), .string(url.isFileURL ? url.path : url.absoluteString), .string("replace")
-        ])
+    public func load(_ source: PlaybackSource) async throws {
+        let owned = try runningSession()
+        let location = source.url.isFileURL ? source.url.path : source.url.absoluteString
+        _ = try await owned.connection.request([
+            .string("loadfile"), .string(location), .string("replace"), .number(-1), .object(source.mpvOptions)
+        ], awaitFileLoaded: true)
+        try ensureCurrent(owned.id)
     }
 
     public func setPaused(_ paused: Bool) async throws {
@@ -95,13 +95,16 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let idle = try await command([.string("get_property"), .string("idle-active")])
         let seconds = try await optionalNumber("time-pos")
         let duration = try await optionalNumber("duration")
+        let videoCodec = try await optionalString("video-codec")
+        let audioCodec = try await optionalString("audio-codec")
         try ensureCurrent(current.id)
         guard case .bool(let isPaused) = pause, case .bool(let isIdle) = idle else {
             throw PlaybackError.invalidResponse
         }
         return PlaybackSnapshot(
             isPaused: isPaused, isIdle: isIdle,
-            position: PlaybackPosition(seconds: seconds ?? 0, duration: duration)
+            position: PlaybackPosition(seconds: seconds ?? 0, duration: duration),
+            videoCodec: videoCodec, audioCodec: audioCodec
         )
     }
 
@@ -128,6 +131,16 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let result = try await current.connection.request(arguments)
         try ensureCurrent(current.id)
         return result
+    }
+
+    private func optionalString(_ property: String) async throws -> String? {
+        do {
+            switch try await command([.string("get_property"), .string(property)]) {
+            case .string(let value): return value
+            case .null: return nil
+            default: throw PlaybackError.invalidResponse
+            }
+        } catch PlaybackError.propertyUnavailable { return nil }
     }
 
     private func optionalNumber(_ property: String) async throws -> Double? {

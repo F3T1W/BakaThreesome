@@ -37,6 +37,8 @@ struct MPVRequest: Encodable {
 }
 
 struct MPVMessage: Decodable {
+    let event: String?
+    let reason: String?
     let request_id: Int?
     let error: String?
     let data: MPVValue?

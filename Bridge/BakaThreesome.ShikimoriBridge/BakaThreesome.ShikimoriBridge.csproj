@@ -4,5 +4,10 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../BakaThreesome.Bridge.Contracts/BakaThreesome.Bridge.Contracts.csproj" />
+    <ProjectReference Include="../../Vendor/ShikimoriSharp/ShikimoriSharp/ShikimoriSharp.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="../../Vendor/ShikimoriSharp/LICENSE" Link="ShikimoriSharp.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../docs/third-party-notices.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

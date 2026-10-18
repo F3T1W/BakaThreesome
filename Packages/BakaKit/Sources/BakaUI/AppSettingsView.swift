@@ -1,22 +1,16 @@
-import Accounts
 import SwiftUI
 
 public struct AppSettingsView: View {
-    public init() {}
+    private let services: ApplicationServices
+
+    public init(services: ApplicationServices) {
+        self.services = services
+    }
 
     public var body: some View {
         TabView {
             Tab("Accounts", systemImage: "person.crop.circle") {
-                Form {
-                    Section("Services") {
-                        ForEach(ServiceAccount.allCases, id: \.self) { service in
-                            LabeledContent(service.displayName, value: "Not connected")
-                        }
-                    }
-                    Text("Sign-in will be available after the integrations have been verified.")
-                        .foregroundStyle(.secondary)
-                }
-                .formStyle(.grouped)
+                AccountsView(shikimori: services.shikimori)
             }
 
             Tab("About", systemImage: "info.circle") {
@@ -36,6 +30,6 @@ public struct AppSettingsView: View {
                 .padding(32)
             }
         }
-        .frame(width: 560, height: 340)
+        .frame(width: 640, height: 500)
     }
 }

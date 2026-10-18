@@ -40,9 +40,9 @@ struct DiagnosticsView: View {
                     .foregroundStyle(.secondary)
             }
             Section("Integrations") {
-                LabeledContent("ShikimoriSharp", value: "Integration not implemented yet")
-                LabeledContent("Kinopub", value: "Integration not implemented yet")
-                LabeledContent("JSON bridge", value: "Protocol v1 · handshake")
+                LabeledContent("ShikimoriSharp", value: "Catalog and manual tracking connected")
+                LabeledContent("Kinopub browser", value: "Website sign-in prototype")
+                LabeledContent("JSON bridge", value: "Protocol v1 · catalog, accounts, tracking")
             }
         }
         .formStyle(.grouped)

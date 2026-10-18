@@ -5,6 +5,7 @@ private enum LibrarySection: String, CaseIterable, Identifiable {
     case watchlist = "Watchlist"
     case catalog = "Catalog"
     case diagnostics = "Diagnostics"
+    case kinopub = "Kinopub"
 
     var id: Self { self }
 
@@ -14,6 +15,7 @@ private enum LibrarySection: String, CaseIterable, Identifiable {
         case .watchlist: "bookmark"
         case .catalog: "square.grid.2x2"
         case .diagnostics: "stethoscope"
+        case .kinopub: "globe"
         }
     }
 }
@@ -44,15 +46,11 @@ public struct LibraryView: View {
                         description: Text("Episodes you have started watching will appear here.")
                     )
                 case .watchlist:
-                    accountRequiredView(
-                        title: "Watchlist", symbol: "bookmark",
-                        message: "Shikimori watchlist integration is planned for a future update."
-                    )
+                    AnimeLibraryView(model: services.shikimori, isWatchlist: true).id(LibrarySection.watchlist)
                 case .catalog:
-                    accountRequiredView(
-                        title: "Catalog", symbol: "square.grid.2x2",
-                        message: "Search will be available after ShikimoriSharp is connected."
-                    )
+                    AnimeLibraryView(model: services.shikimori, isWatchlist: false).id(LibrarySection.catalog)
+                case .kinopub:
+                    KinopubBrowserView(model: services.kinopubBrowser)
                 case .diagnostics:
                     DiagnosticsView(model: services.diagnostics)
                 }
@@ -67,9 +65,7 @@ public struct LibraryView: View {
             }
         }
         .frame(minWidth: 780, minHeight: 520)
+        .task { await services.shikimori.restore() }
     }
 
-    private func accountRequiredView(title: String, symbol: String, message: String) -> some View {
-        ContentUnavailableView(title, systemImage: symbol, description: Text(message))
-    }
 }

@@ -66,6 +66,56 @@ struct MPVIntegrationTests {
         }
     }
 
+    @Test func pairsSeparateVideoAndAudioWithReservedPathCharacters() async throws {
+        let executable = try #require(PlaybackEnvironment.discover().mpvURL)
+        let directory = try OwnedTemporaryDirectory()
+        defer { directory.remove() }
+        let video = directory.url.appendingPathComponent("video.y4m")
+        let audio = directory.url.appendingPathComponent("audio:,percent%quoted.wav")
+        var frames = Data("YUV4MPEG2 W2 H2 F1:1 Ip A1:1 C420jpeg\n".utf8)
+        for _ in 0..<3 {
+            frames.append(Data("FRAME\n".utf8))
+            frames.append(contentsOf: [16, 16, 16, 16, 128, 128])
+        }
+        try frames.write(to: video)
+        try silentWave().write(to: audio)
+        let engine = MPVPlaybackEngine(executable: executable, headless: true)
+        do {
+            try await engine.start()
+            try await engine.setPaused(true)
+            try await engine.load(PlaybackSource(url: video, audioURL: audio))
+            let deadline = ContinuousClock.now.advanced(by: .seconds(4))
+            var state = try await engine.snapshot()
+            while (state.videoCodec == nil || state.audioCodec == nil), ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(40))
+                state = try await engine.snapshot()
+            }
+            #expect(state.videoCodec != nil)
+            #expect(state.audioCodec != nil)
+            await engine.stop()
+        } catch {
+            await engine.stop()
+            throw error
+        }
+    }
+
+    @Test func failedFileLoadReportsItsEventInsteadOfPollingAnIdlePlayer() async throws {
+        let executable = try #require(PlaybackEnvironment.discover().mpvURL)
+        let directory = try OwnedTemporaryDirectory()
+        defer { directory.remove() }
+        let engine = MPVPlaybackEngine(executable: executable, headless: true)
+        do {
+            try await engine.start()
+            await #expect(throws: PlaybackError.commandRejected) {
+                try await engine.load(directory.url.appendingPathComponent("missing-video.mkv"))
+            }
+            await engine.stop()
+        } catch {
+            await engine.stop()
+            throw error
+        }
+    }
+
     @Test func cancelledCheckStopsItsOwnedPlayer() async throws {
         let executable = try #require(PlaybackEnvironment.discover().mpvURL)
         let engine = MPVPlaybackEngine(executable: executable, headless: true)

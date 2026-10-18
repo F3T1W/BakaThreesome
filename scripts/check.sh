@@ -8,3 +8,4 @@ python3 scripts/check-language.py
 dotnet build BakaThreesome.slnx --configuration Debug --nologo
 swift test --package-path Packages/BakaKit
 python3 scripts/check-bridge.py
+dotnet run --project Bridge/BakaThreesome.ShikimoriBridge.Checks --no-build

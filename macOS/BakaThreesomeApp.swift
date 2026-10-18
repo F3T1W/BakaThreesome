@@ -17,7 +17,7 @@ struct BakaThreesomeApp: App {
         .defaultSize(width: 1120, height: 760)
 
         Settings {
-            AppSettingsView()
+            AppSettingsView(services: services)
         }
     }
 }

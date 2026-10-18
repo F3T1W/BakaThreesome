@@ -26,7 +26,7 @@ responses = [json.loads(line) for line in result.stdout.splitlines()]
 assert len(responses) == len(requests), "Expected one response per request"
 assert result.stderr == "", "Unexpected helper diagnostics"
 assert responses[0]["id"] == "request-é-1"
-assert responses[0]["result"]["capabilities"] == ["handshake"]
+assert {"handshake", "catalog.search", "watchlist.save"} <= set(responses[0]["result"]["capabilities"])
 assert responses[1]["error"]["code"] == "unsupported_version"
 assert responses[2]["error"]["code"] == "unknown_method"
 assert responses[3]["error"]["code"] == "invalid_json"
