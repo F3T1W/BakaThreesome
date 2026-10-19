@@ -60,11 +60,12 @@ IPC media control, not video rendering or SVP.
 - Experimental browser media discovery and per-file User-Agent/Referer are now
   available; see [Kinopub browser](kinopub-browser.md). One live Kinopub episode has been verified with video and audio; cookie transfer
   is not implemented. Long-session stability remains unverified. No integrated native video UI,
-  track selection, persistence, automatic stream recovery, or Shikimori updates.
+  track selection, automatic stream recovery, or Shikimori updates. Local linked-episode
+  position persistence is implemented; see [Continue Watching](continue-watching.md).
   Kinopub website sign-in and playback are described in
   [Kinopub browser](kinopub-browser.md).
-- Position is read on demand. Property subscriptions and a playback event stream
-  will be added with the actual playback session and tracking use cases.
+- Playback position is sampled every two seconds for local resume checkpoints.
+  Property subscriptions and a playback event stream remain future work.
 - Forced application termination cannot run orderly async cleanup. Normal Quit
   waits for the current diagnostic task; forced-quit recovery remains separate.
 - Verification targets the local Apple Silicon configuration.

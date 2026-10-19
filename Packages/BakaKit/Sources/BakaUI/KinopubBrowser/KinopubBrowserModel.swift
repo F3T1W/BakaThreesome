@@ -1,54 +1,94 @@
-import AppKit
+import Catalog
 import Foundation
 import Kinopub
+import Matching
 import Observation
 import Playback
+import Tracking
 import WebKit
+
+struct BrowserEpisodeChoice: Identifiable {
+    let destination: KinopubEpisode
+    let title: String
+    var id: String { destination.id }
+}
 
 @MainActor
 @Observable
 final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate {
-    var useSVP = UserDefaults.standard.object(forKey: "playback.useSVP") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(useSVP, forKey: "playback.useSVP") }
-    }
+    var useSVP: Bool { get { playback.useSVP } set { playback.useSVP = newValue } }
+    var svpStatus: String { playback.svpStatus }
+    var playerStatus: String { playback.status }
+    var progressError: String? { playback.progressError }
+    private(set) var isWorking = false
+    private(set) var isPreparing = false
     private(set) var websiteOrigin = URL(string: "https://gxux.pkr.ovh")!
-    private(set) var svpStatus = "SVP: Off"
     var audioSourceID: UUID?
     var address = "https://gxux.pkr.ovh"
     private(set) var candidates: [BrowserMediaCandidate] = []
-    private(set) var isWorking = false
+    private(set) var episodeChoices: [BrowserEpisodeChoice] = []
     private(set) var status = "Sign in on the website, open an episode, and start its web player to discover media."
     private(set) var errorMessage: String?
     @ObservationIgnored private(set) var webView: WKWebView!
+    @ObservationIgnored private let history: ResumeLibraryModel
+    @ObservationIgnored private let playback: MPVPlaybackModel
     @ObservationIgnored private var allowedHost = "gxux.pkr.ovh"
-    @ObservationIgnored private var player: MPVPlaybackEngine?
+    private var linkedTitle: EpisodeContext?
+    private var finishedURL: URL?
     @ObservationIgnored private var operation: Task<Void, Never>?
-    @ObservationIgnored private var monitor: Task<Void, Never>?
+    @ObservationIgnored private var operationID = UUID()
+    @ObservationIgnored private var preparationID = UUID()
+    @ObservationIgnored private var preparing: Task<Void, Never>?
+    @ObservationIgnored private var pendingResume: (context: EpisodeContext, seconds: Double)?
+    @ObservationIgnored private var isStopping = false
     @ObservationIgnored private var hasLoaded = false
 
-    override init() {
+    init(history: ResumeLibraryModel, playback: MPVPlaybackModel) {
+        self.history = history; self.playback = playback
         super.init()
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = KinopubWebsiteSession.dataStore()
         configuration.mediaTypesRequiringUserActionForPlayback = .all
         let controller = configuration.userContentController
         controller.add(WeakMediaHandler(self), contentWorld: .defaultClient, name: "bakaMedia")
-        if let path = Bundle.module.url(forResource: "MediaDiscovery", withExtension: "js"),
-           let script = try? String(contentsOf: path, encoding: .utf8) {
-            controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd,
-                                                  forMainFrameOnly: false, in: .defaultClient))
+        controller.add(WeakMediaHandler(self), contentWorld: .defaultClient, name: "bakaEpisodes")
+        for name in ["MediaDiscovery", "EpisodeDiscovery"] {
+            if let path = Bundle.module.url(forResource: name, withExtension: "js"),
+               let script = try? String(contentsOf: path, encoding: .utf8) {
+                controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentEnd,
+                                                      forMainFrameOnly: name == "EpisodeDiscovery", in: .defaultClient))
+            }
         }
         webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = self
-        webView.uiDelegate = self
+        webView.navigationDelegate = self; webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
     }
 
-    func loadIfNeeded() {
-        if !hasLoaded { navigate() }
+    var currentEpisode: EpisodeContext? {
+        guard let title = linkedTitle, let page = finishedURL, page == webView.url else { return nil }
+        let context: EpisodeContext
+        if let episode = KinopubEpisode(url: page), episode.itemID == title.kinopubItemID, episode.season == title.season {
+            guard let selected = title.selectingEpisode(itemID: episode.itemID, season: episode.season, episode: episode.episode) else { return nil }
+            context = selected
+        } else if title.kind == "movie", title.season == 0,
+                  page.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "item/view/\(title.kinopubItemID)" {
+            context = title
+        } else { return nil }
+        return context.isValid ? context : nil
     }
 
+    var currentEpisodeNumber: Int { finishedURL.flatMap(KinopubEpisode.init(url:))?.episode ?? 0 }
+
+    var savedEpisode: ResumeEntry? { history.entry(for: currentEpisode) }
+    var primaryManifest: BrowserMediaCandidate? {
+        guard let page = finishedURL, page == webView.url else { return nil }
+        return candidates.first { $0.isPrimaryManifest && $0.isMainFrame && $0.source == "Video" && $0.pageURL == page }
+    }
+
+    func loadIfNeeded() { if !hasLoaded { navigate() } }
+
     func navigate() {
+        cancelPreparation()
         guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)),
               url.scheme == "https", let host = url.host, url.user == nil, url.password == nil else {
             errorMessage = "Enter an HTTPS website address without embedded credentials."
@@ -57,42 +97,83 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         var origin = URLComponents()
         origin.scheme = "https"; origin.host = host; origin.port = url.port
         guard let base = origin.url else { return }
-        websiteOrigin = base
-        allowedHost = host.lowercased()
-        hasLoaded = true
-        errorMessage = nil
-        candidates = []
-        audioSourceID = nil
+        websiteOrigin = base; allowedHost = host.lowercased()
+        loadPage(url)
+    }
+
+    private func loadPage(_ url: URL) {
+        hasLoaded = true; finishedURL = nil
+        errorMessage = nil; candidates = []; episodeChoices = []; audioSourceID = nil
+        address = url.absoluteString
         webView.load(URLRequest(url: url))
     }
 
-    func openTitle(itemID: Int64, season: Int) {
-        guard itemID > 0, (0...999).contains(season) else { return }
-        let suffix = season > 0 ? "/s\(season)e1" : ""
-        address = websiteOrigin.appendingPathComponent("item/view/\(itemID)" + suffix).absoluteString
-        navigate()
+    func openTitle(anime: AnimeSummary, mapping: EpisodeMapping) {
+        guard mapping.animeID.rawValue == anime.id else { return }
+        cancelPreparation()
+        linkedTitle = EpisodeContext(animeID: mapping.animeID, title: anime.title, kind: anime.kind,
+                                     kinopubItemID: mapping.kinopubItemID, season: mapping.season, episode: 1)
+        let suffix = mapping.season > 0 ? "/s\(mapping.season)e1" : ""
+        loadPage(websiteOrigin.appendingPathComponent("item/view/\(mapping.kinopubItemID)" + suffix))
+    }
+
+    func chooseEpisode(_ number: Int) {
+        guard let choice = episodeChoices.first(where: { $0.destination.episode == number }) else { return }
+        cancelPreparation()
+        loadPage(choice.destination.url(on: websiteOrigin))
+    }
+
+    func resume(_ entry: ResumeEntry, fromBeginning: Bool = false) {
+        guard entry.isValid, operation == nil else { return }
+        hasLoaded = true
+        cancelPreparation()
+        run {
+            await self.playback.stop()
+            try Task.checkCancellation()
+            self.linkedTitle = entry.context
+            let context = entry.context
+            let suffix = context.season > 0 ? "/s\(context.season)e\(context.episode)" : ""
+            self.loadPage(self.websiteOrigin.appendingPathComponent("item/view/\(context.kinopubItemID)" + suffix))
+            self.pendingResume = (context, fromBeginning ? 0 : entry.position.seconds)
+            self.isPreparing = true
+        }
     }
 
     func scan() {
-        errorMessage = nil
-        candidates = []
-        audioSourceID = nil
-        webView.evaluateJavaScript("window.__bakaScanMedia?.()", in: nil, in: .defaultClient) { _ in }
+        errorMessage = nil; candidates = []; audioSourceID = nil
+        webView.evaluateJavaScript("window.__bakaScanMedia?.(); window.__bakaScanEpisodes?.()", in: nil, in: .defaultClient) { _ in }
     }
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "bakaEpisodes" { receiveEpisodes(message); return }
         guard message.name == "bakaMedia", let value = message.body as? [String: String],
               let address = value["address"], let page = value["pageAddress"], let source = value["source"],
-              let candidate = BrowserMediaCandidate(address: address, pageAddress: page, source: source),
+              let candidate = BrowserMediaCandidate(address: address, pageAddress: page, source: source,
+                                                    isMainFrame: message.frameInfo.isMainFrame),
               isAllowed(webView.url), candidates.count < 100 else { return }
-        if let index = candidates.firstIndex(where: { $0.url == candidate.url }) {
-            if candidate.source == "Video", candidates[index].source == "Resource" { candidates[index] = candidate }
-            return
-        }
-        candidates.append(candidate)
-        if player == nil && operation == nil {
-            status = "Found \(candidates.count) media source(s). Select the source for the episode you opened."
-        }
+        if candidate.isMainFrame, candidate.pageURL != webView.url { return }
+        if let index = candidates.firstIndex(where: { $0.url == candidate.url && $0.pageURL == candidate.pageURL }) {
+            if candidate.source == "Video",
+               candidates[index].source == "Resource" || (candidate.isMainFrame && !candidates[index].isMainFrame) {
+                candidates[index] = candidate
+            }
+        } else { candidates.append(candidate) }
+        tryPendingResume()
+    }
+
+    private func receiveEpisodes(_ message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame, let value = message.body as? [String: Any],
+              let address = value["pageAddress"] as? String, let page = URL(string: address),
+              page == finishedURL, page == webView.url, isAllowed(page),
+              let current = KinopubEpisode(url: page),
+              let values = value["episodes"] as? [[String: String]], values.count <= 2000 else { return }
+        var seen: Set<String> = []
+        episodeChoices = values.compactMap { value in
+            guard let address = value["address"], let url = URL(string: address), isAllowed(url),
+                  let destination = KinopubEpisode(url: url), destination.itemID == current.itemID,
+                  destination.season == current.season, seen.insert(destination.id).inserted else { return nil }
+            return BrowserEpisodeChoice(destination: destination, title: value["title"] ?? "")
+        }.sorted { $0.destination.episode < $1.destination.episode }
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
@@ -100,6 +181,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         if navigationAction.targetFrame?.isMainFrame == false {
             return url?.scheme == "https" || url?.absoluteString == "about:blank" ? .allow : .cancel
         }
+        if let pendingResume, !matchesPending(url, context: pendingResume.context) { cancelPreparation() }
         guard isAllowed(url) else {
             errorMessage = "Navigation to another site was blocked. Enter its trusted HTTPS address above if this is your Kinopub mirror."
             return .cancel
@@ -108,28 +190,34 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
-        candidates = []
+        finishedURL = nil
+        candidates = []; episodeChoices = []
         audioSourceID = nil
         errorMessage = nil
         status = "Loading website…"
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        finishedURL = webView.url
+        scan()
+        preparePendingResume()
         // Keep query strings and signed addresses out of native UI state.
         if let url = webView.url, var parts = URLComponents(url: url, resolvingAgainstBaseURL: false) {
             parts.query = nil; parts.fragment = nil
             address = parts.url?.absoluteString ?? address
         }
+        if pendingResume != nil { status = "Refreshing the episode stream for playback…"; return }
         status = candidates.isEmpty
             ? "Open an episode and start its web player. Media sources will appear below."
             : "Found \(candidates.count) media source(s)."
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { errorMessage = "The website could not be loaded. Check its address and your connection." }
+        if (error as NSError).code != NSURLErrorCancelled { cancelPreparation(); errorMessage = "The website could not be loaded. Check its address and your connection." }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        cancelPreparation()
         errorMessage = "The website stopped loading. Try reloading the page."
     }
 
@@ -139,140 +227,127 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         return nil
     }
 
-    func play(_ candidate: BrowserMediaCandidate) {
+    func playEpisode(fromBeginning: Bool = false) {
+        guard let manifest = primaryManifest else { return }
+        let context = currentEpisode
+        let seconds = fromBeginning ? 0 : (history.entry(for: context)?.position.seconds ?? 0)
+        audioSourceID = nil
+        cancelPreparation()
+        play(manifest, context: context, seconds: seconds)
+    }
+
+    /// Individual sources remain a diagnostic path; only the current main-frame player manifest records progress.
+    func play(_ candidate: BrowserMediaCandidate) { cancelPreparation(); play(candidate, context: nil, seconds: 0) }
+
+    private func play(_ candidate: BrowserMediaCandidate, context: EpisodeContext?, seconds: Double) {
         guard operation == nil else { return }
-        isWorking = true
-        errorMessage = nil
-        status = "Starting mpv…"
         let audioURL = candidates.first(where: { $0.id == audioSourceID })?.url
-        operation = Task {
-            defer { isWorking = false; operation = nil }
-            do {
-                monitor?.cancel()
-                await monitor?.value
-                let environment = PlaybackEnvironment.discover()
-                guard let executable = environment.mpvURL else { throw PlaybackError.playerNotFound }
-                let enableSVP = useSVP
-                if enableSVP {
-                    guard let svp = environment.svpURL,
-                          try await MPVCapabilityProbe(executable: executable).inspect().hasVapourSynth else {
-                        throw PlaybackError.svpUnavailable
-                    }
-                    let configuration = NSWorkspace.OpenConfiguration()
-                    configuration.activates = false
-                    do {
-                        _ = try await NSWorkspace.shared.openApplication(at: svp, configuration: configuration)
-                    } catch {
-                        throw PlaybackError.svpUnavailable
-                    }
-                }
-                await player?.stop()
-                svpStatus = enableSVP ? "SVP: Waiting for video…" : "SVP: Off"
-                let engine = MPVPlaybackEngine(executable: executable, enableSVP: enableSVP)
-                player = engine
-                let userAgent = try await webView.evaluateJavaScript("navigator.userAgent") as? String
-                let source = try PlaybackSource(url: candidate.url, referrer: candidate.referrerOrigin,
-                                                userAgent: userAgent, audioURL: audioURL, origin: candidate.referrerOrigin)
-                try await engine.start()
-                try await engine.load(source)
-                startMonitoring(engine)
-                let deadline = ContinuousClock.now.advanced(by: .seconds(20))
-                while ContinuousClock.now < deadline {
-                    let snapshot = try await engine.snapshot()
-                    if !snapshot.isIdle && (snapshot.position.duration != nil || snapshot.position.seconds > 0) {
-                        if snapshot.videoCodec != nil && snapshot.audioCodec != nil {
-                            status = "mpv is playing video and audio. Automatic Shikimori progress tracking is not connected yet."
-                            return
-                        }
-                        if audioURL == nil, snapshot.videoCodec != nil || snapshot.audioCodec != nil {
-                            status = snapshot.videoCodec != nil
-                                ? "mpv is playing video only. Select its external audio source if the website uses separate tracks."
-                                : "mpv is playing audio only. Choose the video source and use this source as external audio."
-                            return
-                        }
-                    }
-                    try await Task.sleep(for: .milliseconds(250))
-                }
-                throw PlaybackError.timedOut
-            } catch {
-                monitor?.cancel()
-                await monitor?.value
-                svpStatus = "SVP: Off"
-                await player?.stop()
-                player = nil
-                status = "Playback did not start."
-                if let error = error as? PlaybackError { errorMessage = error.errorDescription }
-                else { errorMessage = "The browser could not prepare this media source. Reopen the episode and try again." }
+        status = "Preparing mpv playback…"
+        run {
+            self.webView.evaluateJavaScript("document.querySelectorAll('video,audio').forEach(media => media.pause())",
+                                            in: nil, in: .defaultClient) { _ in }
+            let userAgent = try await self.webView.evaluateJavaScript("navigator.userAgent") as? String
+            try Task.checkCancellation()
+            let source = try PlaybackSource(url: candidate.url, referrer: candidate.referrerOrigin,
+                                            userAgent: userAgent, audioURL: audioURL, origin: candidate.referrerOrigin,
+                                            startSeconds: seconds)
+            try await self.playback.start(source: source, episode: context)
+            self.status = context == nil ? "Playback is not linked to an episode." : "Local episode progress is saved automatically."
+        }
+    }
+
+    private func tryPendingResume() {
+        guard let pending = pendingResume, operation == nil, currentEpisode?.id == pending.context.id,
+              let manifest = primaryManifest else { return }
+        pendingResume = nil; preparing?.cancel(); preparing = nil; isPreparing = false
+        audioSourceID = nil
+        play(manifest, context: pending.context, seconds: pending.seconds)
+    }
+
+    private func matchesPending(_ url: URL?, context: EpisodeContext) -> Bool {
+        guard let url, isAllowed(url) else { return false }
+        if context.season == 0 { return url.path == "/item/view/\(context.kinopubItemID)" }
+        return KinopubEpisode(url: url) == KinopubEpisode(itemID: context.kinopubItemID, season: context.season, episode: context.episode)
+    }
+
+    private func preparePendingResume() {
+        guard pendingResume != nil else { return }
+        preparing?.cancel()
+        let id = UUID(); preparationID = id
+        preparing = Task {
+            defer { if preparationID == id { isPreparing = false } }
+            guard let url = Bundle.module.url(forResource: "PrepareEpisode", withExtension: "js"),
+                  let script = try? String(contentsOf: url, encoding: .utf8) else { return }
+            var requested = false
+            for _ in 0..<20 {
+                if Task.isCancelled || pendingResume == nil || preparationID != id { return }
+                if let response = try? await webView.callAsyncJavaScript(script, arguments: ["requested": requested],
+                                                                        in: nil, contentWorld: .defaultClient) as? String,
+                   response == "requested" { requested = true }
+                guard !Task.isCancelled, preparationID == id else { return }
+                tryPendingResume()
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            }
+            if pendingResume != nil {
+                status = "Start the web player to refresh its stream. The selected episode will then open in mpv at the requested position."
             }
         }
     }
 
-    func stop() {
+    private func cancelPreparation() {
+        preparationID = UUID()
+        pendingResume = nil; preparing?.cancel(); preparing = nil; isPreparing = false
+    }
+
+    private func run(_ action: @escaping @MainActor () async throws -> Void) {
         guard operation == nil else { return }
-        isWorking = true
+        let id = UUID(); operationID = id; isWorking = true
+        errorMessage = nil
         operation = Task {
-            monitor?.cancel()
-            await monitor?.value
-            svpStatus = "SVP: Off"
-            await player?.stop()
-            player = nil
+            defer { if operationID == id { operation = nil; isWorking = false } }
+            do { try await action() }
+            catch is CancellationError { status = "Playback cancelled." }
+            catch let error as PlaybackError { errorMessage = error.errorDescription }
+            catch let error as ResumeStartError { errorMessage = error.errorDescription }
+            catch { errorMessage = "The browser could not prepare this episode. Reopen it and try again." }
+        }
+    }
+
+    func stop() {
+        guard !isStopping else { return }
+        cancelPreparation()
+        let previous = operation
+        previous?.cancel()
+        let id = UUID(); operationID = id; isStopping = true; isWorking = true
+        operation = Task {
+            defer { isStopping = false; if operationID == id { operation = nil; isWorking = false } }
+            await previous?.value
+            await playback.stop()
             status = "Playback stopped."
-            isWorking = false
-            operation = nil
         }
     }
 
     func clearSession() {
         guard operation == nil else { return }
-        isWorking = true
-        operation = Task {
-            webView.stopLoading()
-            monitor?.cancel()
-            await monitor?.value
-            svpStatus = "SVP: Off"
-            await player?.stop()
-            player = nil
-            candidates = []
-            audioSourceID = nil
-            await webView.configuration.websiteDataStore.removeData(
+        cancelPreparation()
+        run {
+            self.webView.stopLoading()
+            await self.playback.stop()
+            self.candidates = []; self.episodeChoices = []; self.finishedURL = nil
+            self.audioSourceID = nil; self.linkedTitle = nil
+            await self.webView.configuration.websiteDataStore.removeData(
                 ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(), modifiedSince: .distantPast)
-            status = "Browser session cleared. Sign in again on the website."
-            errorMessage = nil
-            isWorking = false
-            operation = nil
-            if let url = URL(string: "https://" + allowedHost) { webView.load(URLRequest(url: url)) }
+            self.status = "Browser session cleared. Sign in again on the website."
+            self.loadPage(self.websiteOrigin)
         }
     }
 
     func shutdown() async {
+        cancelPreparation()
         operation?.cancel()
         await operation?.value
-        monitor?.cancel()
-        await monitor?.value
-        await player?.stop()
-        player = nil
+        await playback.stop()
         webView.stopLoading()
-    }
-
-    private func startMonitoring(_ engine: MPVPlaybackEngine) {
-        monitor = Task { [weak self] in
-            do {
-                while !Task.isCancelled {
-                    let state = try await engine.interpolationStatus()
-                    switch state {
-                    case .disabled: self?.svpStatus = "SVP: Off"
-                    case .waiting: self?.svpStatus = "SVP: Waiting for interpolation. Check SVP Manager if this persists."
-                    case .connected: self?.svpStatus = "SVP: Filter connected; waiting for frame rate confirmation…"
-                    case .interpolating(let source, let output):
-                        self?.svpStatus = String(format: "SVP: Active · %.2f → %.2f fps", source, output)
-                    }
-                    try await Task.sleep(for: .seconds(2))
-                }
-            } catch is CancellationError {
-            } catch {
-                self?.svpStatus = "SVP: Player unavailable"
-            }
-        }
     }
 
     private func isAllowed(_ url: URL?) -> Bool {
@@ -280,7 +355,6 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         return host == allowedHost || host.hasSuffix("." + allowedHost)
     }
 }
-
 @MainActor
 private final class WeakMediaHandler: NSObject, WKScriptMessageHandler {
     weak var target: KinopubBrowserModel?

@@ -80,9 +80,14 @@ The alternative-title section provides a Google search link, an extra title quer
 and a manual Kinopub page option. Google alias extraction is currently manual.
 See [Title matching](title-matching.md) for behavior and limits.
 
-The destination opens on the website. Start its web player and use Play Episode
-in mpv to launch playback. Automatic episode offsets, resume persistence and
-progress updates from playback are future work.
+The destination opens on the website. Choose a concrete episode with the native
+Episode picker or the website, then start its web player and use Play Episode in
+mpv. Linked episode positions are saved locally and appear in Continue Watching.
+Continue reopens the exact episode and retrieves its current stream. A website
+user gesture may still be required before mpv can resume. Play from Beginning
+starts over. See [Episodes and Continue Watching](continue-watching.md).
+
+Automatic episode offsets and Shikimori progress updates remain future work.
 
 See [Shikimori details](shikimori-integration.md) and
 [Kinopub browser details](kinopub-browser.md) for implementation and verification.

@@ -116,6 +116,39 @@ struct MPVIntegrationTests {
         }
     }
 
+    @Test func perFileResumeRestoresPositionAndReportsEndWithoutLeakingToTheNextFile() async throws {
+        let executable = try #require(PlaybackEnvironment.discover().mpvURL)
+        let directory = try OwnedTemporaryDirectory()
+        defer { directory.remove() }
+        let media = directory.url.appendingPathComponent("resume.wav")
+        try silentWave().write(to: media)
+        let engine = MPVPlaybackEngine(executable: executable, headless: true)
+        do {
+            try await engine.start()
+            try await engine.setPaused(true)
+            try await engine.load(PlaybackSource(url: media, startSeconds: 1.25))
+            var state = try await engine.snapshot()
+            let deadline = ContinuousClock.now.advanced(by: .seconds(5))
+            while abs(state.position.seconds - 1.25) > 0.05, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(40))
+                state = try await engine.snapshot()
+            }
+            #expect(abs(state.position.seconds - 1.25) < 0.05)
+            try await engine.setPaused(false)
+            while !state.hasEnded, ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(40))
+                state = try await engine.snapshot()
+            }
+            #expect(state.hasEnded)
+            try await engine.load(PlaybackSource(url: media, startSeconds: 0))
+            #expect(try await engine.snapshot().position.seconds < 0.1)
+            await engine.stop()
+        } catch {
+            await engine.stop()
+            throw error
+        }
+    }
+
     @Test func cancelledCheckStopsItsOwnedPlayer() async throws {
         let executable = try #require(PlaybackEnvironment.discover().mpvURL)
         let engine = MPVPlaybackEngine(executable: executable, headless: true)

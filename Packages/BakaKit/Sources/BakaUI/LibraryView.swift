@@ -1,5 +1,6 @@
 import Catalog
 import SwiftUI
+import Tracking
 
 private enum LibrarySection: String, CaseIterable, Identifiable {
     case resume = "Continue Watching"
@@ -43,11 +44,11 @@ public struct LibraryView: View {
             Group {
                 switch selection ?? .resume {
                 case .resume:
-                    ContentUnavailableView(
-                        "Continue Watching",
-                        systemImage: "play.circle",
-                        description: Text("Episodes you have started watching will appear here.")
-                    )
+                    ContinueWatchingView(model: services.history,
+                                         isPreparingPlayback: services.kinopubBrowser.isWorking || services.kinopubBrowser.isPreparing) { entry, fromBeginning in
+                        services.kinopubBrowser.resume(entry, fromBeginning: fromBeginning)
+                        selection = .kinopub
+                    }
                 case .watchlist:
                     AnimeLibraryView(model: services.shikimori, isWatchlist: true, onOpenKinopub: findKinopub).id(LibrarySection.watchlist)
                 case .catalog:
@@ -68,11 +69,11 @@ public struct LibraryView: View {
             }
         }
         .frame(minWidth: 780, minHeight: 520)
-        .task { await services.shikimori.restore() }
+        .task { await services.history.refresh(); await services.shikimori.restore() }
         .sheet(item: $matchingAnime) { anime in
             KinopubMatchSheet(anime: anime, client: services.shikimori.client, store: services.episodeMappings,
                               origin: services.kinopubBrowser.websiteOrigin, useSaved: useSavedMatch) { mapping in
-                services.kinopubBrowser.openTitle(itemID: mapping.kinopubItemID, season: mapping.season)
+                services.kinopubBrowser.openTitle(anime: anime, mapping: mapping)
                 selection = .kinopub
             }
         }

@@ -15,7 +15,7 @@ mpv process controlled through JSON IPC.
   - `Catalog`: Shikimori catalog models.
   - `Matching`: title normalization, candidate resolution and saved season mappings; depends on Catalog and Kinopub.
   - `Playback`: playback and position models.
-  - `Tracking`: resume state and progress; depends on Catalog and Playback.
+  - `Tracking`: episode context, resume checkpoint policy and actor-owned SwiftData history; depends on Catalog and Playback.
   - `ShikimoriBridge`: typed API client, child-process transport and account lifecycle.
 - `BakaThreesome.slnx`: the .NET solution:
   - `BakaThreesome.Bridge.Contracts`: the JSON v1 contract.
@@ -60,7 +60,7 @@ services own token rotation and Keychain persistence. See
 
 The Kinopub catalog gateway is implemented for website search and item details.
 Introduce a stream gateway and further storage interfaces as their scenarios appear.
-SwiftData remains the intended foundation for playback/history persistence;
+SwiftData stores local episode playback history;
 confirmed title mappings currently use a small atomic JSON store. Keychain stores
 secrets. Synchronization must persist the intent to set absolute progress
 and explicitly resolve conflicts with remote changes.
@@ -87,3 +87,5 @@ Remaining work: automatic external alias lookup, sustained playback validation, 
 and automatic tracking. Embedded libmpv requires a separate experiment.
 
 [Title matching, website search and saved destinations](title-matching.md).
+
+[Episode identity, resume persistence and Continue Watching](continue-watching.md).

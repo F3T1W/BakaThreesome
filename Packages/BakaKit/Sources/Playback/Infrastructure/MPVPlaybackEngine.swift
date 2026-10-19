@@ -38,7 +38,7 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let socket = directory.url.appendingPathComponent("mpv.sock")
         var arguments = [
             "--no-config", "--idle=yes", "--force-window=no", "--terminal=no",
-            "--input-terminal=no", "--no-resume-playback", "--hwdec=auto-copy",
+            "--input-terminal=no", "--keep-open=yes", "--no-resume-playback", "--hwdec=auto-copy",
             "--hwdec-codecs=all", "--hr-seek-framedrop=no", "--network-timeout=15",
             "--demuxer-lavf-o=http_persistent=0,http_multiple=0",
             "--input-ipc-server=\(socket.path)"
@@ -117,6 +117,9 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let duration = try await optionalNumber("duration")
         let videoCodec = try await optionalString("video-codec")
         let audioCodec = try await optionalString("audio-codec")
+        let eof: MPVValue
+        do { eof = try await command([.string("get_property"), .string("eof-reached")]) }
+        catch PlaybackError.propertyUnavailable { eof = .bool(false) }
         try ensureCurrent(current.id)
         guard case .bool(let isPaused) = pause, case .bool(let isIdle) = idle else {
             throw PlaybackError.invalidResponse
@@ -124,7 +127,7 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         return PlaybackSnapshot(
             isPaused: isPaused, isIdle: isIdle,
             position: PlaybackPosition(seconds: seconds ?? 0, duration: duration),
-            videoCodec: videoCodec, audioCodec: audioCodec
+            videoCodec: videoCodec, audioCodec: audioCodec, hasEnded: eof == .bool(true)
         )
     }
 

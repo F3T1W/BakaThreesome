@@ -21,7 +21,8 @@ require confirmation. Movies and other formats currently require confirmation.
 
 Choose a candidate, inspect its title/year and select a season or Title page,
 then choose Save Match and Open. This opens the destination website page without
-starting mpv or updating Shikimori progress. Start its web player to discover the
+starting mpv or updating Shikimori progress. A linked concrete episode can then
+save its local playback position in Continue Watching. Start its web player to discover the
 stream, then choose Play Episode in mpv as before.
 
 If needed, expand Alternative title or manual match. Find Alternative Titles on

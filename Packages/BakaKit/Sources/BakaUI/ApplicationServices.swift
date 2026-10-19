@@ -7,10 +7,15 @@ import Playback
 public final class ApplicationServices {
     let diagnostics = DiagnosticsModel()
     let shikimori = ShikimoriModel()
-    let kinopubBrowser = KinopubBrowserModel()
+    let history: ResumeLibraryModel
+    let kinopubBrowser: KinopubBrowserModel
     let episodeMappings = EpisodeMappingStore()
 
-    public init() {}
+    public init() {
+        let history = ResumeLibraryModel()
+        self.history = history
+        kinopubBrowser = KinopubBrowserModel(history: history, playback: MPVPlaybackModel(history: history))
+    }
 
     public func shutdown() async {
         await kinopubBrowser.shutdown()

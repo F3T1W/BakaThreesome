@@ -1,13 +1,14 @@
 import Foundation
 
 public struct PlaybackSource: Sendable {
+    public let startSeconds: Double?
     public let url: URL
     public let audioURL: URL?
     public let referrer: URL?
     public let origin: URL?
     public let userAgent: String?
 
-    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil) throws {
+    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil, startSeconds: Double? = nil) throws {
         guard url.isFileURL || (["http", "https"].contains(url.scheme?.lowercased() ?? "")
                                && url.host != nil && url.user == nil && url.password == nil),
               referrer.map({ $0.scheme == "https" && $0.host != nil && $0.user == nil && $0.password == nil }) ?? true,
@@ -23,6 +24,8 @@ public struct PlaybackSource: Sendable {
                   origin.query == nil, origin.fragment == nil, ["", "/"].contains(origin.path)
             else { throw PlaybackError.invalidMediaURL }
         }
+        if let startSeconds, !startSeconds.isFinite || startSeconds < 0 { throw PlaybackError.invalidSeek }
+        self.startSeconds = startSeconds
         self.url = url
         self.audioURL = audioURL
         self.referrer = referrer
@@ -32,6 +35,7 @@ public struct PlaybackSource: Sendable {
 
     var mpvOptions: [String: MPVValue] {
         var options: [String: MPVValue] = ["ytdl": .string("no"), "force-media-title": .string("BakaThreesome")]
+        if let startSeconds { options["start"] = .string(String(startSeconds)) }
         if let referrer { options["referrer"] = .string(referrer.absoluteString) }
         if let origin {
             let value = origin.absoluteString.hasSuffix("/") ? String(origin.absoluteString.dropLast()) : origin.absoluteString

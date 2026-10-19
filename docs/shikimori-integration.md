@@ -13,8 +13,9 @@ The adapted source, original MIT license, source commit and patch list are in
 - Add a title, set an absolute watched episode count, change status, and rate 1–10.
   Unrated sets the score to 0. A successful save refreshes the watchlist.
 - Statuses and scores change only after an explicit Save. No automatic completion,
-  playback tracking, offline queue, conflict merge, or custom named playlists yet.
-- Continue Watching remains a playback placeholder; it does not duplicate Watching.
+  playback-to-Shikimori synchronization, offline queue, conflict merge, or custom named playlists yet.
+- Continue Watching stores local linked-episode positions; it does not duplicate Watching
+  or update Shikimori watched counts.
 
 These lists are Shikimori status lists, not Kinopub playlists or collections.
 The REST endpoints used here are supported but documented as deprecated by

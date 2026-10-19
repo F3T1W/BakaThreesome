@@ -28,26 +28,50 @@ struct KinopubBrowserView: View {
                         .toggleStyle(.switch).controlSize(.small)
                         .fixedSize().disabled(model.isWorking)
                         .help("Applies when starting the next playback session.")
-                    if model.isWorking { ProgressView().controlSize(.small) }
+                    if model.isWorking || model.isPreparing { ProgressView().controlSize(.small) }
                     Button("Rescan", systemImage: "magnifyingglass") { model.scan() }
-                    Button("Stop mpv", systemImage: "stop.fill") { model.stop() }
-                        .disabled(model.isWorking)
+                    Button(model.isWorking || model.isPreparing ? "Cancel Playback" : "Stop mpv", systemImage: "stop.fill") { model.stop() }
                     Button("Clear Session", role: .destructive) { model.clearSession() }
                         .disabled(model.isWorking)
                 }
                 .buttonStyle(.glass)
+                if !model.episodeChoices.isEmpty {
+                    Picker("Episode", selection: Binding(get: { model.currentEpisodeNumber }, set: { model.chooseEpisode($0) })) {
+                        Text("Choose an episode").tag(0)
+                        ForEach(model.episodeChoices) { choice in
+                            Text("Episode \(choice.destination.episode)" + (choice.title.isEmpty ? "" : " · \(choice.title)"))
+                                .tag(choice.destination.episode)
+                        }
+                    }
+                    .frame(maxWidth: 500).disabled(model.isWorking)
+                }
+                if let episode = model.currentEpisode {
+                    Text("\(episode.title) · \(episode.label) · Local playback progress enabled")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Open this title from Watchlist or Catalog and select its linked season to save episode progress.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if !model.playerStatus.isEmpty { Text(model.playerStatus).font(.caption).foregroundStyle(.secondary) }
+                if let error = model.progressError {
+                    Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
+                }
                 Text(model.svpStatus).font(.caption).foregroundStyle(.secondary)
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
                 if let error = model.errorMessage {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.red)
                 }
-                if let manifest = model.candidates.first(where: { $0.isPrimaryManifest }) {
-                    Button("Play Episode in mpv", systemImage: "play.fill") {
-                        model.audioSourceID = nil
-                        model.play(manifest)
+                if model.primaryManifest != nil {
+                    HStack {
+                        Button(model.savedEpisode.map { "Resume in mpv · " + PlaybackTimeText.format($0.position.seconds) }
+                               ?? "Play Episode in mpv", systemImage: "play.fill") { model.playEpisode() }
+                            .buttonStyle(.glassProminent)
+                        if model.savedEpisode != nil {
+                            Button("Play from Beginning") { model.playEpisode(fromBeginning: true) }.buttonStyle(.glass)
+                        }
                     }
-                    .buttonStyle(.glassProminent).disabled(model.isWorking)
+                    .disabled(model.isWorking)
                 }
                 if !model.candidates.isEmpty {
                     Picker("External audio", selection: $model.audioSourceID) {

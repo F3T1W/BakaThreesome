@@ -113,3 +113,12 @@ the next session. SVP profiles and target frame rates remain in SVP Manager.
 Local generated video was verified at 24 → 60 fps. A live HLS episode also
 confirmed video/audio and SVP interpolation at 23.98 → 59.94 fps after nearly one
 minute of startup. Sustained playback still needs verification. See [SVP setup and checks](playback.md#svp-integration).
+
+## Concrete episodes and saved positions
+
+Linked titles expose a native Episode picker using current page links. The main
+player manifest can record the exact linked season/episode locally. Continue
+Watching reopens that episode and gets a current manifest; a website gesture may
+still be required. Diagnostic sources and unlinked pages do not record episode
+progress. See [Continue Watching](continue-watching.md) for persistence, cancellation
+and verification details.

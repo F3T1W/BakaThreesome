@@ -5,8 +5,9 @@ public struct BrowserMediaCandidate: Identifiable, Sendable {
     public let url: URL
     public let pageURL: URL
     public let source: String
+    public let isMainFrame: Bool
 
-    public init?(address: String, pageAddress: String, source: String) {
+    public init?(address: String, pageAddress: String, source: String, isMainFrame: Bool = false) {
         guard address.utf8.count <= 16384, pageAddress.utf8.count <= 16384,
               let url = URL(string: address), let page = URL(string: pageAddress),
               url.scheme?.lowercased() == "https", url.host != nil,
@@ -17,6 +18,7 @@ public struct BrowserMediaCandidate: Identifiable, Sendable {
         self.url = url
         pageURL = page
         self.source = source
+        self.isMainFrame = isMainFrame
     }
 
     public var isPrimaryManifest: Bool {

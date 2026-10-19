@@ -88,3 +88,14 @@ and manual title URL are available when needed. Google lookup opens in the brows
 automatic extraction of Google aliases is not implemented yet.
 
 [Matching behavior, setup and checks](docs/title-matching.md).
+
+## Continue Watching
+
+Linked Kinopub episodes now save local playback positions with SwiftData. Choose
+an episode using the native picker, play its primary stream in mpv, then use
+Continue Watching after stopping or restarting the app. Continue reopens the
+same episode and retrieves its current stream before restoring position. A web
+player gesture may be needed by the website. Play from Beginning is also available.
+Shikimori watched counts remain manual.
+
+[Episode identity, persistence and checks](docs/continue-watching.md).

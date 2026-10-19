@@ -22,6 +22,7 @@ let package = Package(
         .testTarget(name: "PlaybackTests", dependencies: ["Playback"]),
         .testTarget(name: "KinopubTests", dependencies: ["Kinopub"]),
         .testTarget(name: "AccountsTests", dependencies: ["Accounts"]),
-        .testTarget(name: "MatchingTests", dependencies: ["Matching", "Catalog", "Kinopub"])
+        .testTarget(name: "MatchingTests", dependencies: ["Matching", "Catalog", "Kinopub"]),
+        .testTarget(name: "TrackingTests", dependencies: ["Tracking", "Catalog", "Playback"])
     ]
 )

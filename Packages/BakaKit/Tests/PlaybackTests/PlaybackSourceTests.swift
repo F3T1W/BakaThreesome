@@ -35,3 +35,12 @@ import Testing
         try PlaybackSource(url: url, origin: URL(string: "https://mirror.example/private?token=synthetic")!)
     }
 }
+
+@Test func resumePositionIsValidatedAndAppliesOnlyToItsOwnFile() throws {
+    let url = URL(string: "https://media.example/master.m3u8")!
+    #expect(try PlaybackSource(url: url, startSeconds: 125.5).mpvOptions["start"] == .string("125.5"))
+    #expect(try PlaybackSource(url: url).mpvOptions["start"] == nil)
+    for value in [-1.0, .infinity, .nan] {
+        #expect(throws: PlaybackError.invalidSeek) { try PlaybackSource(url: url, startSeconds: value) }
+    }
+}

@@ -10,6 +10,12 @@ public protocol PlaybackEngine: Sendable {
 }
 
 public struct PlaybackSnapshot: Sendable {
+    public let hasEnded: Bool
+    public init(isPaused: Bool, isIdle: Bool, position: PlaybackPosition,
+                videoCodec: String? = nil, audioCodec: String? = nil, hasEnded: Bool = false) {
+        self.isPaused = isPaused; self.isIdle = isIdle; self.position = position
+        self.videoCodec = videoCodec; self.audioCodec = audioCodec; self.hasEnded = hasEnded
+    }
     public let isPaused: Bool
     public let isIdle: Bool
     public let position: PlaybackPosition
