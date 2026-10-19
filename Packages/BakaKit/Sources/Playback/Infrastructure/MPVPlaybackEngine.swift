@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 public actor MPVPlaybackEngine: PlaybackEngine {
     struct Session: Sendable {
@@ -15,6 +16,7 @@ public actor MPVPlaybackEngine: PlaybackEngine {
     private let networkDiagnosticsEnabled: Bool
     private var session: Session?
     private var ready = false
+    private var startupNote: String?
     private var stopTask: Task<Void, Never>?
 
     public init(executable: URL, headless: Bool = false, enableSVP: Bool = false, networkDiagnostics: Bool = false) {
@@ -92,13 +94,103 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         // Long HLS startup can make SVP classify an idle player as audio-only.
         // Advertise only after file-loaded confirms that the media is ready.
         owned.registration?.remove()
-        let location = source.url.isFileURL ? source.url.path : source.url.absoluteString
+        let selection: HLSMasterSelection?
+        var rejection: String?
+        do { selection = try await HLSMasterSelection.fetch(source) }
+        catch let error as HLSMasterSelection.Rejection {
+            selection = nil; rejection = error.rawValue
+        } catch {
+            selection = nil; rejection = "master request failed"
+        }
+        try Task.checkCancellation()
+        try ensureCurrent(owned.id)
+        startupNote = selection.map { "HLS selected program: \($0.programCount) → 1; \($0.renditionCount) renditions retained" }
+            ?? (source.hlsStartupMode == .selectedProgram ? "HLS selected program: original master retained (\(rejection ?? "not eligible"))" : nil)
+        if let startupNote {
+            Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
+                .notice("\(startupNote, privacy: .public)")
+        }
+        let location = selection.map { "data://application/vnd.apple.mpegurl;base64," + Data($0.content.utf8).base64EncodedString() }
+            ?? (source.url.isFileURL ? source.url.path : source.url.absoluteString)
+        var options = source.mpvOptions
+        var paused: Bool?
+        if selection != nil {
+            options["demuxer"] = .string("lavf")
+            options["demuxer-lavf-format"] = .string("hls")
+            if let start = source.startSeconds, start > 0 {
+                guard case .bool(let value) = try await command([.string("get_property"), .string("pause")]) else {
+                    throw PlaybackError.invalidResponse
+                }
+                paused = value
+                options["pause"] = .string("yes")
+                options.removeValue(forKey: "start")
+            }
+        }
         _ = try await owned.connection.request([
-            .string("loadfile"), .string(location), .string("replace"), .number(-1), .object(source.mpvOptions)
+            .string("loadfile"), .string(location), .string("replace"), .number(-1), .object(options)
         ], awaitFileLoaded: true)
+        if let paused, let start = source.startSeconds {
+            try await restoreResumePosition(to: start, paused: paused)
+        }
         try ensureCurrent(owned.id)
         if owned.registration != nil, try await optionalString("video-codec") != nil {
             try await advertiseVideo(owned)
+        }
+    }
+
+    /// Restore transport state before confirmation: a visible decoder may need playback to finish a seek.
+    func restoreResumePosition(to seconds: Double, paused: Bool) async throws {
+        let owned = try runningSession()
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        let duration = try await resumeNumber("duration", until: deadline, sessionID: owned.id)
+        if let duration, seconds >= duration - 1 {
+            // The caller reports an out-of-range saved position.
+            _ = try await resumeCommand([.string("set_property"), .string("pause"), .bool(paused)], until: deadline, sessionID: owned.id)
+            return
+        }
+        _ = try await resumeCommand([.string("seek"), .number(seconds), .string("absolute+exact")], until: deadline, sessionID: owned.id)
+        let sought = ContinuousClock.now
+        _ = try await resumeCommand([.string("set_property"), .string("pause"), .bool(paused)], until: deadline, sessionID: owned.id)
+        var position = -1.0
+        var seeking = false
+        while true {
+            try Task.checkCancellation()
+            try ensureCurrent(owned.id)
+            do {
+                position = try await resumeNumber("time-pos", until: deadline, sessionID: owned.id) ?? -1
+                let elapsed = sought.duration(to: .now).components
+                let drift = paused ? 0 : Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+                // Seeking can remain true until the first rendered/filter frame. Do not block SVP registration on it.
+                if position >= seconds - 0.25, position <= seconds + drift + 0.25 { return }
+                seeking = try await resumeCommand([.string("get_property"), .string("seeking")], until: deadline, sessionID: owned.id) == .bool(true)
+            } catch PlaybackError.timedOut { }
+            guard ContinuousClock.now < deadline else {
+                Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
+                    .notice("HLS resume confirmation timed out: requested=\(seconds, privacy: .public), position=\(position, privacy: .public), seeking=\(seeking, privacy: .public)")
+                throw PlaybackError.timedOut
+            }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    private func resumeNumber(_ property: String, until deadline: ContinuousClock.Instant, sessionID: UUID) async throws -> Double? {
+        do {
+            switch try await resumeCommand([.string("get_property"), .string(property)], until: deadline, sessionID: sessionID) {
+            case .number(let value): return value
+            case .null: return nil
+            default: throw PlaybackError.invalidResponse
+            }
+        } catch PlaybackError.propertyUnavailable { return nil }
+    }
+
+    private func resumeCommand(_ arguments: [MPVValue], until deadline: ContinuousClock.Instant, sessionID: UUID) async throws -> MPVValue {
+        while true {
+            try Task.checkCancellation()
+            try ensureCurrent(sessionID)
+            do { return try await command(arguments) }
+            catch PlaybackError.timedOut {
+                guard ContinuousClock.now < deadline else { throw PlaybackError.timedOut }
+            }
         }
     }
 
@@ -149,7 +241,7 @@ public actor MPVPlaybackEngine: PlaybackEngine {
 
     public func networkDiagnostics() async -> [String] {
         guard let session else { return [] }
-        return await session.connection.networkDiagnostics()
+        return [startupNote].compactMap { $0 } + (await session.connection.networkDiagnostics())
     }
 
     public func interpolationStatus() async throws -> SVPInterpolationStatus {

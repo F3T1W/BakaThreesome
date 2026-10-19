@@ -63,7 +63,7 @@ final class MPVPlaybackModel {
             phase = "loading the media stream"
             var activeSource = source
             do { try await player.load(activeSource) }
-            catch PlaybackError.commandRejected where source.usesFastHLSStartup {
+            catch PlaybackError.commandRejected where source.needsCompatibilityFallback {
                 try Task.checkCancellation()
                 activeSource = try source.conservativeStartup()
                 try await player.load(activeSource)
@@ -73,7 +73,7 @@ final class MPVPlaybackModel {
             phase = "waiting for video and audio"
             status = "The stream is loaded. Waiting for video, audio and player filters…"
             let mediaReady = ContinuousClock.now
-            var retriedProbe = !activeSource.usesFastHLSStartup
+            var retriedProbe = !activeSource.needsCompatibilityFallback
             var deadline = ContinuousClock.now.advanced(by: .seconds(20))
             while true {
                 try Task.checkCancellation()
@@ -95,8 +95,8 @@ final class MPVPlaybackModel {
                 if !state.isIdle, state.videoCodec != nil || state.audioCodec != nil {
                     if episode != nil, state.videoCodec == nil {
                         // A linked episode must wait for video, even if audio becomes ready first.
-                    } else if activeSource.usesFastHLSStartup && episode != nil && state.audioCodec == nil {
-                        // Give fast probing a short audio readiness window before the compatibility retry.
+                    } else if activeSource.needsCompatibilityFallback && episode != nil && state.audioCodec == nil {
+                        // Give optimized startup a short audio readiness window before the compatibility retry.
                     } else if source.audioURL != nil, state.audioCodec == nil {
                         // Separate audio can arrive after the video track.
                     } else {
@@ -117,7 +117,7 @@ final class MPVPlaybackModel {
                         let media = playerReady.duration(to: mediaReady).secondsValue
                         status += String(format: " Ready in %.2f s.", total)
                         Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
-                            .notice("Startup seconds: player=\(process, privacy: .public), media=\(media, privacy: .public), ready=\(total, privacy: .public), compatibilityRetry=\(retriedProbe && source.usesFastHLSStartup, privacy: .public)")
+                            .notice("Startup seconds: player=\(process, privacy: .public), media=\(media, privacy: .public), ready=\(total, privacy: .public), compatibilityRetry=\(retriedProbe && source.needsCompatibilityFallback, privacy: .public)")
                         await capture(state)
                         await opening.connect(player: player, chapters: player)
                         opening.observe(state)

@@ -209,8 +209,55 @@ import Testing
     }
     #expect(diagnostics.lines == ["Opening playlist · cdn.example.com", "TLS negotiation or read failed",
                                   "HTTP request rejected", "Network timeout", "Segment open failed"])
-    let report = diagnostics.lines.joined(separator: "\n")
+    let report = diagnostics.report.joined(separator: "\n")
     for secret in ["secret", "private", "password", "user:", "Cookie", "Authorization", "https://"] {
         #expect(!report.contains(secret))
     }
+}
+
+@Test func resumeAllowsRendererRestartAndLateIdempotentIPCReplies() async throws {
+    let directory = try OwnedTemporaryDirectory()
+    defer { directory.remove() }
+    let executable = directory.url.appendingPathComponent("resume-renderer-player")
+    let script = """
+    #!/usr/bin/python3
+    import json,socket,sys,time
+    path=next(x.split('=',1)[1] for x in sys.argv if x.startswith('--input-ipc-server='))
+    server=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+    server.bind(path);server.listen(1)
+    client,_=server.accept()
+    paused=True;seeking=False;position=0;seen=set()
+    def send(value): client.sendall((json.dumps(value)+'\\n').encode())
+    for line in client.makefile('rb'):
+        request=json.loads(line);command=request['command'];data=None
+        key=tuple(command[:2])
+        if key not in seen and (key in [('get_property','duration'),('get_property','time-pos')] or command[0]=='seek'):
+            seen.add(key);time.sleep(2.2)
+        if command[0]=='get_property':
+            data={'mpv-version':'synthetic','duration':100,'time-pos':position,'pause':paused,'seeking':seeking}.get(command[1])
+        elif command[0]=='seek':
+            position=command[1];seeking=True
+        elif command[0]=='set_property' and command[1]=='pause':
+            paused=command[2]
+            if not paused:
+                time.sleep(0.35);position+=0.35
+        send({'request_id':request['request_id'],'error':'success','data':data})
+    """
+    try script.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    let player = MPVPlaybackEngine(executable: executable, headless: true)
+    try await player.start()
+    do {
+        try await player.restoreResumePosition(to: 44.42, paused: false)
+        #expect(try await player.command([.string("get_property"), .string("pause")]) == .bool(false))
+        // The first-frame flag is independent of an already restored position.
+        #expect(try await player.command([.string("get_property"), .string("seeking")]) == .bool(true))
+        guard case .number(let position) = try await player.command([.string("get_property"), .string("time-pos")]) else {
+            Issue.record("The resumed player did not expose its position")
+            await player.stop()
+            return
+        }
+        #expect(abs(position - 44.77) < 0.01)
+        await player.stop()
+    } catch { await player.stop(); throw error }
 }

@@ -1,16 +1,20 @@
 import Foundation
 
+public enum KinopubFormat: String, Codable, Sendable { case movie, series }
+
 public struct KinopubTitle: Codable, Identifiable, Hashable, Sendable {
     public let id: Int64
     public let titles: [String]
     public let year: Int?
     public let seasons: [Int]
+    public let format: KinopubFormat?
 
-    public init(id: Int64, titles: [String], year: Int?, seasons: [Int] = []) {
+    public init(id: Int64, titles: [String], year: Int?, seasons: [Int] = [], format: KinopubFormat? = nil) {
         self.id = id
         self.titles = titles
         self.year = year
         self.seasons = seasons
+        self.format = format
     }
 
     public var title: String { titles.first ?? "Untitled" }

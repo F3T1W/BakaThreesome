@@ -9,15 +9,28 @@ continues to show its Shikimori progress/rating editor.
 A saved match opens the configured Kinopub mirror immediately. Otherwise the app
 loads Shikimori details, searches Kinopub by the original title and its Russian,
 English, Japanese, licensed and synonym titles, and ranks the resulting cards.
+A manually entered alternative is searched first, including when official aliases
+exceed the twelve-query budget. Bounded broader queries remove explicit Season N
+or format suffixes for discovery only; they do not become trusted title aliases.
 Searches use a separate WebKit view sharing the existing Kinopub website data
 store. Cookies stay in WebKit; the visible website and playback are not replaced
 until a destination is selected.
 
-A unique exact normalized title with matching release year, a Shikimori TV type,
-and exactly one discovered Kinopub season can open automatically. Punctuation,
+All planned queries finish before automatic selection, so a later alias can expose
+another exact candidate. A unique exact normalized title with matching release year,
+a Shikimori TV type, a compatible episode-based format, consistent explicit season
+markers and exactly one discovered Kinopub season can open automatically. Punctuation,
 case, width and accents are normalized; numbers and season markers are retained.
 Missing metadata, multiple exact matches, multiple seasons and incomplete searches
 require confirmation. Movies and other formats currently require confirmation.
+
+Each candidate shows its matching title/alias, year and format evidence. Warnings
+identify different years (possible remakes), movie/series conflicts, unverified
+metadata, special editions and ambiguous season markers. Searched titles are
+available in a disclosure. Format comes from matching-page Movie/TVSeries JSON-LD
+when available, or discovered season links for an episode-based title. An absence
+of seasons does not establish movie format. Movies, OVA/ONA and specials still
+require explicit confirmation; episode offsets are never inferred.
 
 Choose a candidate, inspect its title/year and select a season or Title page,
 then choose Save Match and Open. This opens the destination website page without
@@ -69,6 +82,10 @@ The default checks exercise alias fallback, title normalization, ambiguity,
 missing/wrong years, multi-season cards, partial search results, errors,
 cancellation, mapping persistence and malformed records. Synthetic .NET checks
 verify that all detail aliases and the release year survive the bridge.
+Regressions also cover late alias ambiguity, prioritizing manual queries, broader
+queries remaining untrusted, remake/format/season warnings, duplicate-card alias
+merging and conflicting years. The real WebKit fixture checks Movie metadata,
+missing metadata and schema records referring to a different title page.
 
 Opt-in real WebKit DOM checks use a nonpersistent browser with synthetic HTML
 and intercepted fetch responses; no service credentials or network are needed:
@@ -82,3 +99,11 @@ and options, expired login and unexpected redirects. The running app was checked
 with a real Watchlist title: Kakegurui resolved to its Kinopub card, both seasons
 were offered, season one was saved and opened, and a repeat action reused the
 saved mapping. This check did not start playback or change Shikimori progress.
+
+The match sheet request carries the anime and saved-match mode together. Change
+Kinopub Match always starts a fresh confirmation flow, even on the first sheet
+presentation; it cannot accidentally reuse the default saved-match mode.
+A live Kakegurui check displayed the exact 2017 title and the distinct 2022 Twin
+candidate with year/title evidence. Selecting the original showed both Kinopub
+seasons and a confirmation warning. The sheet was closed without replacing the
+existing mapping, starting playback or changing any Shikimori progress.

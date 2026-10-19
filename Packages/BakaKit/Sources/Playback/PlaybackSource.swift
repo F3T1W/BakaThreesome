@@ -1,6 +1,13 @@
 import Foundation
 
+public enum HLSStartupMode: String, Sendable, CaseIterable {
+    case compatible
+    case selectedProgram
+}
+
 public struct PlaybackSource: Sendable {
+    public let hlsStartupMode: HLSStartupMode
+    public var needsCompatibilityFallback: Bool { usesFastHLSStartup || hlsStartupMode == .selectedProgram }
     public let trackPreferences: PlaybackTrackPreferences?
     public let usesFastHLSStartup: Bool
     public let startSeconds: Double?
@@ -10,7 +17,7 @@ public struct PlaybackSource: Sendable {
     public let origin: URL?
     public let userAgent: String?
 
-    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil, startSeconds: Double? = nil, fastHLSStartup: Bool = false, trackPreferences: PlaybackTrackPreferences? = nil) throws {
+    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil, startSeconds: Double? = nil, fastHLSStartup: Bool = false, trackPreferences: PlaybackTrackPreferences? = nil, hlsStartupMode: HLSStartupMode = .compatible) throws {
         guard url.isFileURL || (["http", "https"].contains(url.scheme?.lowercased() ?? "")
                                && url.host != nil && url.user == nil && url.password == nil),
               referrer.map({ $0.scheme == "https" && $0.host != nil && $0.user == nil && $0.password == nil }) ?? true,
@@ -28,6 +35,7 @@ public struct PlaybackSource: Sendable {
         }
         if let startSeconds, !startSeconds.isFinite || startSeconds < 0 { throw PlaybackError.invalidSeek }
         usesFastHLSStartup = fastHLSStartup && !url.isFileURL && url.pathExtension.lowercased() == "m3u8"
+        self.hlsStartupMode = hlsStartupMode
         self.trackPreferences = trackPreferences
         self.startSeconds = startSeconds
         self.url = url
@@ -45,7 +53,7 @@ public struct PlaybackSource: Sendable {
     public func preferringTracks(_ preferences: PlaybackTrackPreferences) throws -> PlaybackSource {
         try PlaybackSource(url: url, referrer: referrer, userAgent: userAgent, audioURL: audioURL,
                            origin: origin, startSeconds: startSeconds, fastHLSStartup: usesFastHLSStartup,
-                           trackPreferences: preferences)
+                           trackPreferences: preferences, hlsStartupMode: hlsStartupMode)
     }
 
     var mpvOptions: [String: MPVValue] {

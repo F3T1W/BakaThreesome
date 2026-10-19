@@ -30,6 +30,7 @@ struct KinopubMatchSheet: View {
             if let selected = model.selected {
                 Text(selected.title).font(.headline)
                 if let year = selected.year { Text("Kinopub release year: \(String(year))").foregroundStyle(.secondary) }
+                matchEvidence(for: selected)
                 Text("Confirm that this is the same anime and select its season.").foregroundStyle(.secondary)
                 Picker("Destination", selection: $model.season) {
                     Text("Title page").tag(0)
@@ -45,6 +46,10 @@ struct KinopubMatchSheet: View {
                 }
                 .disabled(model.isWorking)
             } else if let result = model.result {
+                DisclosureGroup("Searched titles · \(result.queries.count)") {
+                    Text(result.queries.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                }
                 if !result.isComplete {
                     Label("Search results are incomplete. Open the website to inspect additional results.",
                           systemImage: "exclamationmark.triangle").foregroundStyle(.secondary)
@@ -62,6 +67,7 @@ struct KinopubMatchSheet: View {
                                 Text(item.title).font(.headline)
                                 Text(item.titles.dropFirst().joined(separator: " · ")).font(.caption).lineLimit(2)
                                 Text(item.year.map(String.init) ?? "Year unknown").font(.caption).foregroundStyle(.secondary)
+                                matchEvidence(for: item)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }
@@ -104,6 +110,21 @@ struct KinopubMatchSheet: View {
             if let match = await model.find(useSaved: useSaved, allowAutomatic: useSaved) { open(match) }
         }
         .onDisappear { operation?.cancel(); model.close() }
+    }
+
+    private func matchEvidence(for item: KinopubTitle) -> some View {
+        let assessment = model.assessment(for: item)
+        return VStack(alignment: .leading, spacing: 4) {
+            if !assessment.reasons.isEmpty {
+                Text(assessment.reasons.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(3)
+            }
+            if !assessment.warnings.isEmpty {
+                Label(assessment.warnings.joined(separator: " · "), systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange).lineLimit(3)
+                    .help(assessment.warnings.joined(separator: "\n"))
+            }
+        }
     }
 
     private func run(_ action: @escaping @MainActor () async -> Void) {

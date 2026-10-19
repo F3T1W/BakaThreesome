@@ -22,10 +22,15 @@ private enum LibrarySection: String, CaseIterable, Identifiable {
     }
 }
 
+private struct KinopubMatchRequest: Identifiable {
+    let anime: AnimeSummary
+    let useSaved: Bool
+    var id: String { "\(anime.id):\(useSaved)" }
+}
+
 public struct LibraryView: View {
     @State private var selection: LibrarySection? = .resume
-    @State private var matchingAnime: AnimeSummary?
-    @State private var useSavedMatch = true
+    @State private var matchingRequest: KinopubMatchRequest?
     private let services: ApplicationServices
 
     public init(services: ApplicationServices = ApplicationServices()) {
@@ -71,18 +76,17 @@ public struct LibraryView: View {
         .frame(minWidth: 780, minHeight: 520)
         .task { services.playback.warmUp(); await services.history.refresh(); await services.shikimori.restore(); await services.progress.start() }
         .onChange(of: services.shikimori.revision) { services.progress.retry() }
-        .sheet(item: $matchingAnime) { anime in
-            KinopubMatchSheet(anime: anime, client: services.shikimori.client, store: services.episodeMappings,
-                              origin: services.kinopubBrowser.websiteOrigin, useSaved: useSavedMatch) { mapping in
-                services.kinopubBrowser.openTitle(anime: anime, mapping: mapping)
+        .sheet(item: $matchingRequest) { request in
+            KinopubMatchSheet(anime: request.anime, client: services.shikimori.client, store: services.episodeMappings,
+                              origin: services.kinopubBrowser.websiteOrigin, useSaved: request.useSaved) { mapping in
+                services.kinopubBrowser.openTitle(anime: request.anime, mapping: mapping)
                 selection = .kinopub
             }
         }
     }
 
     private func findKinopub(_ anime: AnimeSummary, useSaved: Bool) {
-        useSavedMatch = useSaved
-        matchingAnime = anime
+        matchingRequest = KinopubMatchRequest(anime: anime, useSaved: useSaved)
     }
 
 }

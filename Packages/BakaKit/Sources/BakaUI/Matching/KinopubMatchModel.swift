@@ -14,6 +14,7 @@ final class KinopubMatchModel {
     private(set) var selected: KinopubTitle?
     private(set) var isWorking = false
     private(set) var errorMessage: String?
+    private var searchedAlternativeTitles: [String] = []
     var season = 0
     var alternativeTitle = ""
     var manualAddress = ""
@@ -52,10 +53,12 @@ final class KinopubMatchModel {
                 identity = detail.identity ?? AnimeIdentity(id: anime.id, titles: [anime.title], year: nil, kind: anime.kind)
             }
             guard let identity else { return nil }
+            let aliases = alternativeTitle.isEmpty ? [] : [alternativeTitle]
             let value = try await AnimeMatcher(catalog: catalog).find(
-                identity, additionalTitles: alternativeTitle.isEmpty ? [] : [alternativeTitle], allowAutomatic: allowAutomatic
+                identity, additionalTitles: aliases, allowAutomatic: allowAutomatic
             )
             try Task.checkCancellation()
+            searchedAlternativeTitles = aliases
             result = value
             if let mapping = value.automatic {
                 try await store.save(mapping)
@@ -115,6 +118,12 @@ final class KinopubMatchModel {
             errorMessage = "The title match could not be saved. Check access to Application Support and try again."
             return nil
         }
+    }
+
+    func assessment(for item: KinopubTitle) -> AnimeMatchAssessment {
+        AnimeMatchAssessment(item: item, anime: identity ?? AnimeIdentity(id: anime.id, titles: [anime.title],
+                                                                        year: nil, kind: anime.kind),
+                             additionalTitles: searchedAlternativeTitles)
     }
 
     func clearSelection() { selected = nil }

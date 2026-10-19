@@ -44,3 +44,19 @@ import Testing
         #expect(throws: PlaybackError.invalidSeek) { try PlaybackSource(url: url, startSeconds: value) }
     }
 }
+
+@Test func selectedProgramAndCompatibilityFallbackPreservePlaybackContext() throws {
+    let url = URL(string: "https://media.example/master.m3u8")!
+    let origin = URL(string: "https://mirror.example/")!
+    let source = try PlaybackSource(url: url, referrer: origin, userAgent: "Example/1.0", origin: origin,
+                                    startSeconds: 59.33, hlsStartupMode: .selectedProgram)
+    let preferred = try source.preferringTracks(.originalWithRussianSubtitles)
+    #expect(preferred.hlsStartupMode == .selectedProgram)
+    #expect(preferred.needsCompatibilityFallback)
+    let fallback = try preferred.conservativeStartup()
+    #expect(fallback.hlsStartupMode == .compatible)
+    #expect(!fallback.needsCompatibilityFallback)
+    #expect(fallback.url == url && fallback.referrer == origin && fallback.origin == origin)
+    #expect(fallback.startSeconds == 59.33 && fallback.userAgent == "Example/1.0")
+    #expect(fallback.trackPreferences == .originalWithRussianSubtitles)
+}

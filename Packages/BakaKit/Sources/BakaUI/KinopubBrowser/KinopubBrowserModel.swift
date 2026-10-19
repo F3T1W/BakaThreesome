@@ -196,7 +196,12 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         run {
             let agent = try await self.webView.evaluateJavaScript("navigator.userAgent") as? String
             let result = await StreamDiagnosticProbe().run(url: manifest.url, webView: self.webView,
-                                                          origin: self.websiteOrigin, userAgent: agent)
+                                                          origin: self.websiteOrigin, userAgent: agent,
+                                                          startSeconds: self.recoveryPoint?.seconds ?? self.savedEpisode?.position.seconds ?? 0,
+                                                          preferences: self.playback.tracks.preferences) { [weak self] progress in
+                guard !Task.isCancelled, let self, self.finishedURL == page else { return }
+                self.streamDiagnostic = progress
+            }
             try Task.checkCancellation()
             if self.finishedURL == page { self.streamDiagnostic = result }
         }
@@ -332,7 +337,8 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
             try Task.checkCancellation()
             let source = try PlaybackSource(url: candidate.url, referrer: candidate.referrerOrigin,
                                             userAgent: userAgent, audioURL: audioURL, origin: candidate.referrerOrigin,
-                                            startSeconds: seconds)
+                                            startSeconds: seconds,
+                                            hlsStartupMode: candidate.isPrimaryManifest ? .selectedProgram : .compatible)
             do {
                 try await self.playback.start(source: source, episode: context, requestedAt: requested)
             } catch let error as PlaybackError {

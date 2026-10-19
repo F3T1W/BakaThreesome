@@ -243,14 +243,21 @@ list entries were changed by the short startup trial.
 The Kinopub panel includes a collapsed Stream Diagnostics section. Check Stream
 compares a bounded browser fetch with an ephemeral URLSession request using the
 same User-Agent, Referer and Origin, without transferring browser cookies. It
-checks the master, one video playlist, one audio playlist and short segment
-samples. It then opens the complete master in a paused, headless diagnostic mpv
-using app defaults, with a 35-second media-open deadline. This player does not
-register with SVP or record progress. Cancel Playback and Quit cancel the probe.
+checks the master and at most 24 unique video/audio playlists in batches of four.
+For each media playlist it samples the segment covering the requested resume
+position. Segment reads are capped at 4 KiB. It then opens the stream in a paused,
+headless diagnostic mpv using the selected-program startup path, with a
+35-second media-open deadline. This player does not
+register with SVP or record progress. The requested start position and language
+preferences match the pending recovery point or saved episode. Browser and native
+master probes fail independently; a browser fetch failure no longer skips native
+HTTP or mpv diagnosis. Cancel Playback and Quit cancel the probe.
 These are samples; they do not verify every rendition or segment.
 
 The report includes HTTP statuses, timing, HLS track counts, codec presence and
-allowlisted mpv network categories/host names. It never displays response bodies,
+allowlisted mpv network categories/host names, event counts and a bounded timeline
+of the latest 24 distinct consecutive events. Counts are log observations, not
+HTTP request counts. It never displays response bodies,
 signed paths, queries, cookies, authorization headers or arbitrary mpv log text.
 Bodies and addresses remain in memory, samples are bounded, and native sessions
 have no URL cache or credential storage. Ordinary players do not enable debug
@@ -329,3 +336,157 @@ there is no Kinopub marker extractor, external timing-service lookup or inferred
 opening duration. A generated local MKV with real chapters verifies discovery and
 seeking through the installed mpv; absence of markers on a real stream is not
 proof that the episode has no opening.
+
+## Controlled HTTP interruption check
+
+With `BAKA_HLS_INTEGRATION=1`, HLSRecoveryTests generates a local video/audio HLS
+stream and serves it on an ephemeral loopback HTTP port. After real mpv begins
+playing, a fixture switch makes subsequent segment requests return HTTP 503.
+The test requires a failed-media snapshot rather than successful completion,
+checks that the failed snapshot cannot erase the last resume checkpoint, and
+reopens the actual disk history through a new store instance. It then restores
+HTTP service, starts a new player with a refreshed URL and the saved start offset,
+and requires video/audio plus advancing playback from that position.
+
+The check does not change the Mac's network settings, terminate unrelated players,
+use service credentials or make Shikimori mutations. It complements the normal-EOF,
+startup cancellation, delayed IPC and account-bound progress tests; it does not
+prove every Kinopub/CDN failure mode or long-session SVP stability.
+
+Combined local checks:
+
+```sh
+BAKA_MPV_INTEGRATION=1 BAKA_HLS_INTEGRATION=1 BAKA_WEBKIT_INTEGRATION=1 ./scripts/check.sh
+```
+
+### Live stability sample on 2026-10-19
+
+A bounded live Kinopub check encountered three 60-second media-load timeouts before
+player readiness: the first S01E02 startup, a subsequent S01E03 transition, and
+S01E03 Continue after a full application restart.
+Retry Playback recovered S01E02 with a freshly discovered stream in 26.07 seconds,
+restored Japanese audio/Russian subtitles and confirmed SVP at 23.98 to 59.94 fps.
+Across three IPC observations over 40 seconds, time-pos advanced from 397.79 to
+437.80 seconds at speed 1.0, paused-for-cache stayed false and decoder-frame-drop-count
+stayed zero. These measurements cover only that short recovered playback interval.
+
+Retry Playback also recovered S01E03 in 20.00 seconds with Japanese audio,
+Russian subtitles and active SVP. After normal Stop at approximately 0:59 and a
+full application restart, Continue Watching displayed only S01E03 for this anime.
+Its approximately 0:59 position was retained, but the first real stream startup
+after that restart also timed out; a successful live resume from this new restart
+was not verified in this run. The local HLS restart/resume check did pass.
+Timeout recovery preserved the local episode position and kept the application
+responsive. At this checkpoint, the repeated live startup timeouts remained a release limitation; the
+controlled local HLS test does not explain or eliminate their remote cause. This
+is not evidence of a full-episode or multi-hour stability pass.
+
+The current built executable is arm64 and ad-hoc signed (no TeamIdentifier); local
+`codesign --verify --deep --strict` passes. The helper still launches through an
+installed .NET host, and mpv/SVP are external. These facts describe the development
+artifact, not a signed/notarized distribution package or a clean-Mac installation
+check. Packaging and release validation remain separate work.
+
+### Follow-up startup investigation on 2026-10-19
+
+The master returned HTTP 200 in 0.11 seconds through WebKit and 0.46 seconds
+through URLSession. Sampled child playlists returned HTTP 200 in 0.12 to 0.98
+seconds; sampled segments returned HTTP 206 in 0.19 to 0.28 seconds. These samples
+cover only two child playlists and do not establish that all media is available.
+
+With the saved 59.33-second offset, the paused diagnostic player opened video and
+audio in 27.70 seconds. Its allowlisted timeline recorded a network timeout and
+segment-open failure at 27.58 seconds, followed by another media-open event and
+file-loaded. A second run recorded the same sequence around 27.88 seconds and
+loaded in 27.96 seconds. Both used the complete master; a proposed quality-program
+reduction did not apply to the live manifest. That experiment was removed rather
+than added to normal playback.
+
+This narrows the fault to remote-media startup: mpv can encounter a segment
+read/open timeout while loading this HLS graph. The master fetch and initial IPC
+startup are not the slow stages in these samples. A local segment failure/recovery
+check passes, but neither sample reproduced the entire previous 60-second failure
+or proves whether CDN routing, transport behavior or a particular rendition is the
+underlying cause. SVP was absent from both probes, so it is not required for this
+startup delay. At that stage, these results did not yet justify changing playback defaults.
+
+At that checkpoint, intermittent first-attempt media startup still blocked release
+readiness. The following investigation compared transport/probing alternatives and
+selected-program loading while preserving audio/subtitle tracks and the saved position. Packaging and publication are explicitly on hold at the user's
+request; stop and notify the user before starting that stage.
+
+### Selected-program startup validation on 2026-10-19
+
+All 18 sampled video/audio playlists and their resume-position segment samples
+responded quickly through URLSession. Both compatible and concurrent connections
+still hit the 35-second diagnostic deadline in mpv. Disabling HTTP ranges and
+limiting stream analysis also failed to resolve the delay. Those experimental
+transport/probing modes were removed from the application.
+
+The real master also contains I-frame trick-play variants. The earlier strict
+reducer rejected that tag and therefore always retained the original master.
+The selector now recognizes and omits optional I-frame trick-play entries while
+keeping the highest-bandwidth normal video variant. It reduces only when every
+referenced quality group offers an equivalent set of audio/subtitle/caption
+renditions; language, studio/name, channels and characteristics remain significant.
+Numbered display prefixes and default/auto-selection flags may differ between
+otherwise equivalent groups. Unique voices, incomplete group references,
+unsupported tags, malformed attributes or insecure child URLs retain the original
+master. Full stream probing and compatible HTTP connections remain enabled.
+
+The selected master is passed through private mpv IPC as an in-memory data URI.
+It is never written to a file, command-line argument or diagnostic report. Explicit
+lavf/HLS demuxing preserves the alternate tracks. Loading starts paused when a
+saved offset exists; an exact seek is issued, the previous pause state is restored,
+and the target position is confirmed with allowance for elapsed playback time. Out-of-range offsets continue through the existing resume error
+path. The playback model retains its one-time original-master fallback if an
+optimized load is rejected or video/audio metadata does not become usable.
+
+On the previously affected S01E03 stream, the headless selected-program probe
+loaded in 5.71 seconds, retained six renditions from one of three quality programs,
+selected Japanese audio and Russian subtitles, and reported position 59.35 seconds
+for a 59.33-second request. This is a bounded live observation, not a guaranteed
+startup time for every CDN or title.
+
+The real-mpv local fixture includes two video programs, alternate Japanese/Russian
+audio groups, Russian WebVTT subtitles and a saved offset. It checks track selection,
+audio switching, position preservation and reloading the original master in the
+same player after selected-program loading. Pure parser checks cover I-frame tags,
+unique voices, malformed attributes, unknown tags and unsafe child addresses.
+
+The initial normal-player trial loaded S01E03 with SVP in 6.68 seconds and the
+S01E04 transition in 3.60 seconds. Two numeric observations over 20 seconds showed
+position advancing from 23.40 to 43.40, speed 1.0, no cache pause, zero decoder-frame
+drops and approximately 59.94 output fps. Japanese audio and Russian subtitles
+remained selected. These are short runtime samples.
+
+A subsequent cold resume exposed a separate confirmation defect: after 18.96
+seconds the application rejected startup even though a later numeric trace showed
+the exact saved position (257.631254 seconds) with `seeking=true`. That flag may
+remain set pending the first rendered/filter frame. Requiring it to clear before
+SVP registration created a false failure. Position confirmation now checks the
+restored position rather than waiting for that first-frame flag. Resume property,
+seek and pause requests also tolerate temporary IPC timeouts within a shared
+15-second budget; cancellation and disconnects still propagate immediately.
+A synthetic IPC regression keeps `seeking=true` at the correct position and delays
+several replies beyond the individual two-second request limit. It requires
+successful resume with the prior transport state restored.
+
+After correcting the first-frame flag check, the exact previously failing cold
+resume at 257.631254 seconds completed in 4.55 seconds with Japanese audio, Russian
+subtitles and SVP active at 23.98 to 59.94 fps. Three IPC observations across one
+minute showed position 258.566583 → 288.562998 → 318.576111, speed 1.0, no cache
+pause, zero decoder-frame drops and approximately 59.94 output fps. This validates
+that resumed playback actually advanced after confirmation; it is not a whole-
+episode or multi-hour stability claim.
+
+The final combined local check matrix passed, including real mpv/HLS failure and
+recovery, alternate-track selection, original-master fallback, delayed IPC replies,
+WebKit, bridge checks and the English-only project scan. The opt-in Keychain write
+check was not enabled. Distribution packaging, clean-Mac installation, signing and
+notarization remain the next stage and were not started.
+
+A further full application restart resumed the newer S01E04 checkpoint in 4.14
+seconds with the same language selection and active SVP. Normal Stop saved its
+position, and Continue Watching still displayed a single card for the anime.
+Test playback was stopped. No package, repository commit, push or release was created.

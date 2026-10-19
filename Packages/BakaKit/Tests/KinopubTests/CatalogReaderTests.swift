@@ -32,6 +32,22 @@ struct CatalogReaderTests {
         #expect(try JSONDecoder().decode(Envelope.self, from: Data(detail.utf8)).item.seasons == [1, 2])
     }
 
+    @Test func explicitSchemaFormatIsReadWithoutGuessingFromMissingSeasons() async throws {
+        let page = CatalogTestPage()
+        try await page.load()
+        struct Envelope: Decodable { let item: KinopubTitle }
+        let movie = try await page.read(mode: "details", pages: ["""
+        <h1>Blue Sky</h1><script type="application/ld+json">{"@type":"Movie","url":"/item/view/10"}</script>
+        """])
+        #expect(try JSONDecoder().decode(Envelope.self, from: Data(movie.utf8)).item.format == .movie)
+        let unknown = try await page.read(mode: "details", pages: ["<h1>Blue Sky</h1>"])
+        #expect(try JSONDecoder().decode(Envelope.self, from: Data(unknown.utf8)).item.format == nil)
+        let unrelated = try await page.read(mode: "details", pages: ["""
+        <h1>Blue Sky</h1><script type="application/ld+json">{"@type":"Movie","url":"/item/view/99"}</script>
+        """])
+        #expect(try JSONDecoder().decode(Envelope.self, from: Data(unrelated.utf8)).item.format == nil)
+    }
+
     @Test func loginAndUnexpectedRedirectAreErrorsRatherThanNotFound() async throws {
         let page = CatalogTestPage()
         try await page.load()

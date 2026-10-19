@@ -39,56 +39,58 @@ public struct AnimeMatcher: Sendable {
     public init(catalog: any KinopubCatalog) { self.catalog = catalog }
 
     public func find(_ anime: AnimeIdentity, additionalTitles: [String] = [], allowAutomatic: Bool = true) async throws -> AnimeMatchResult {
-        let allTitles = AnimeTitleNormalizer.unique(anime.titles + additionalTitles)
-        let queries = Array(allTitles.prefix(12))
-        let exact = Set(allTitles.map(AnimeTitleNormalizer.normalize))
+        let names = AnimeTitleNormalizer.unique(additionalTitles + anime.titles)
+        // Broader queries are discovery aids, never trusted aliases for automatic matching.
+        let normalizedNames = Set(names.map(AnimeTitleNormalizer.normalize))
+        let broader = AnimeTitleNormalizer.unique(names.map {
+            $0.replacingOccurrences(of: "(?i)\\s*\\((?:tv|movie|ova|ona)\\)\\s*$", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "(?i)\\b(?:season\\s+\\d+|\\d+(?:st|nd|rd|th)\\s+season)\\b", with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }).filter { !normalizedNames.contains(AnimeTitleNormalizer.normalize($0)) }
+        let planned = AnimeTitleNormalizer.unique(names + broader.prefix(4))
+        let queries = Array(planned.prefix(12))
         var collected: [Int64: KinopubTitle] = [:]
-        var searched: [String] = []
-        var inspected: Set<Int64> = []
-        var complete = allTitles.count <= 12
+        var complete = planned.count <= 12
+        var conflictingYears: Set<Int64> = []
         for query in queries {
             try Task.checkCancellation()
             let result = try await catalog.search(query)
             complete = complete && result.isComplete
-            searched.append(query)
-            for item in result.items where collected[item.id] == nil { collected[item.id] = item }
-            let ranked = collected.values.sorted { lhs, rhs in
-                let l = rank(lhs, anime: anime, exact: exact)
-                let r = rank(rhs, anime: anime, exact: exact)
-                return l == r ? lhs.id < rhs.id : l > r
-            }
-            // Fetch season information only for exact title candidates, never for every broad search hit.
-            let exactCandidates = ranked.filter { matchesTitle($0, exact: exact) }
-            if allowAutomatic, exactCandidates.count == 1, let first = exactCandidates.first,
-               let year = anime.year, first.year == year, anime.kind == "tv", complete {
-                var detail = first
-                if inspected.insert(first.id).inserted {
-                    detail = try await catalog.details(first)
-                    collected[detail.id] = detail
-                }
-                if detail.seasons.count == 1, let season = detail.seasons.first {
-                    return AnimeMatchResult(
-                        candidates: [detail],
-                        automatic: EpisodeMapping(animeID: AnimeID(rawValue: anime.id),
-                                                  kinopubItemID: detail.id, season: season, episodeOffset: 0),
-                        queries: searched, isComplete: complete
-                    )
-                }
+            for item in result.items {
+                if let previous = collected[item.id] {
+                    if let year = previous.year, let nextYear = item.year, year != nextYear { conflictingYears.insert(item.id) }
+                    collected[item.id] = KinopubTitle(id: item.id,
+                        titles: AnimeTitleNormalizer.unique(previous.titles + item.titles),
+                        year: conflictingYears.contains(item.id) ? nil : (previous.year ?? item.year),
+                        seasons: Array(Set(previous.seasons + item.seasons)).sorted(),
+                        format: previous.format ?? item.format)
+                } else { collected[item.id] = item }
             }
         }
-        let ranked = collected.values.sorted { lhs, rhs in
-            let l = rank(lhs, anime: anime, exact: exact)
-            let r = rank(rhs, anime: anime, exact: exact)
-            return l == r ? lhs.id < rhs.id : l > r
+        try Task.checkCancellation()
+        func assessment(_ item: KinopubTitle) -> AnimeMatchAssessment {
+            AnimeMatchAssessment(item: item, anime: anime, additionalTitles: additionalTitles)
         }
-        return AnimeMatchResult(candidates: ranked, automatic: nil, queries: searched, isComplete: complete)
-    }
-
-    private func matchesTitle(_ item: KinopubTitle, exact: Set<String>) -> Bool {
-        item.titles.contains { exact.contains(AnimeTitleNormalizer.normalize($0)) }
-    }
-
-    private func rank(_ item: KinopubTitle, anime: AnimeIdentity, exact: Set<String>) -> Int {
-        (matchesTitle(item, exact: exact) ? 100 : 0) + (anime.year != nil && anime.year == item.year ? 20 : 0)
+        var assessments = collected.mapValues { assessment($0) }
+        var automatic: EpisodeMapping?
+        let exact = collected.values.filter { assessments[$0.id]?.isExact == true }
+        if allowAutomatic, complete, exact.count == 1, let first = exact.first,
+           first.year == anime.year, anime.year != nil, anime.kind == "tv" {
+            let detail = try await catalog.details(first)
+            try Task.checkCancellation()
+            guard detail.id == first.id else { throw KinopubSearchError.unsupportedPage }
+            collected[detail.id] = detail
+            let verified = assessment(detail)
+            assessments[detail.id] = verified
+            if verified.allowsAutomatic, let season = detail.seasons.first {
+                automatic = EpisodeMapping(animeID: AnimeID(rawValue: anime.id), kinopubItemID: detail.id,
+                                           season: season, episodeOffset: 0)
+            }
+        }
+        let ranked = collected.values.sorted {
+            let lhs = assessments[$0.id]?.score ?? 0, rhs = assessments[$1.id]?.score ?? 0
+            return lhs == rhs ? $0.id < $1.id : lhs > rhs
+        }
+        return AnimeMatchResult(candidates: ranked, automatic: automatic, queries: queries, isComplete: complete)
     }
 }

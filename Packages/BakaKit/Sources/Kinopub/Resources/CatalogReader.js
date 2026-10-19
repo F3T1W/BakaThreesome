@@ -70,7 +70,22 @@ try {
                 if (match && Number(match[1]) > 0 && Number(match[1]) <= 999) seasons.add(Number(match[1]));
             } catch { }
         }
-        return JSON.stringify({item: {...item, titles, seasons: [...seasons].sort((a,b) => a-b)}});
+        const formats = new Set();
+        for (const node of [...doc.querySelectorAll('script[type="application/ld+json"]')].slice(0, 20)) {
+            try {
+                const data = JSON.parse(node.textContent);
+                for (const entry of (Array.isArray(data) ? data : [data])) {
+                    if (!entry || typeof entry !== 'object') continue;
+                    const address = entry.url || entry['@id'];
+                    if (address && checkedURL(address, url).pathname !== new URL(url).pathname) continue;
+                    const types = Array.isArray(entry['@type']) ? entry['@type'] : [entry['@type']];
+                    if (types.includes('Movie')) formats.add('movie');
+                    if (types.includes('TVSeries')) formats.add('series');
+                }
+            } catch { }
+        }
+        const format = formats.size === 1 ? [...formats][0] : (formats.size === 0 && seasons.size ? 'series' : null);
+        return JSON.stringify({item: {...item, titles, format, seasons: [...seasons].sort((a,b) => a-b)}});
     }
     const form = [...document.forms].find(form => {
         try { return checkedURL(form.action).pathname === '/item/search'; } catch { return false; }

@@ -104,7 +104,7 @@ final class MPVConnection: @unchecked Sendable {
     }
 
     func networkDiagnostics() async -> [String] {
-        (try? await perform { self.diagnostics.lines }) ?? []
+        (try? await perform { self.diagnostics.report }) ?? []
     }
 
     func mediaHasFailed() async throws -> Bool {
