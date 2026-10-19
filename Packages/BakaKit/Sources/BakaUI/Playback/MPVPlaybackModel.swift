@@ -23,7 +23,7 @@ final class MPVPlaybackModel {
     @ObservationIgnored private var warmup: Task<Void, Never>?
     @ObservationIgnored private var engine: MPVPlaybackEngine?
     @ObservationIgnored private var recorder: ResumeRecorder?
-    @ObservationIgnored private var activeEpisode: EpisodeContext?
+    private(set) var activeEpisode: EpisodeContext?
     @ObservationIgnored private var lastPosition: Double = 0
     @ObservationIgnored private var monitor: Task<Void, Never>?
 

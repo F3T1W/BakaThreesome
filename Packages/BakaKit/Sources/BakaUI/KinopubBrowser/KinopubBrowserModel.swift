@@ -89,6 +89,20 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
 
     var currentEpisodeNumber: Int { finishedURL.flatMap(KinopubEpisode.init(url:))?.episode ?? 0 }
 
+    var previousEpisode: EpisodeContext? { adjacentEpisode(.previous) }
+    var nextEpisode: EpisodeContext? { adjacentEpisode(.next) }
+
+    private func adjacentEpisode(_ direction: EpisodePlaybackNavigation.Direction) -> EpisodeContext? {
+        EpisodePlaybackNavigation.destination(from: currentEpisode, playing: playback.activeEpisode,
+                                              choices: episodeChoices, direction: direction)
+    }
+
+    func playAdjacentEpisode(_ direction: EpisodePlaybackNavigation.Direction) {
+        guard !isWorking, !isPreparing, let episode = adjacentEpisode(direction) else { return }
+        let seconds = history.entry(for: episode)?.position.seconds ?? 0
+        preparePlayback(PlaybackRecoveryPoint(context: episode, origin: websiteOrigin, seconds: seconds))
+    }
+
     var savedEpisode: ResumeEntry? { history.entry(for: currentEpisode) }
     var primaryManifest: BrowserMediaCandidate? {
         guard let page = finishedURL, page == webView.url else { return nil }

@@ -37,14 +37,31 @@ struct KinopubBrowserView: View {
                 }
                 .buttonStyle(.glass)
                 if !model.episodeChoices.isEmpty {
-                    Picker("Episode", selection: Binding(get: { model.currentEpisodeNumber }, set: { model.chooseEpisode($0) })) {
-                        Text("Choose an episode").tag(0)
-                        ForEach(model.episodeChoices) { choice in
-                            Text("Episode \(choice.destination.episode)" + (choice.title.isEmpty ? "" : " · \(choice.title)"))
-                                .tag(choice.destination.episode)
+                    HStack {
+                        Picker("Episode", selection: Binding(get: { model.currentEpisodeNumber }, set: { model.chooseEpisode($0) })) {
+                            Text("Choose an episode").tag(0)
+                            ForEach(model.episodeChoices) { choice in
+                                Text("Episode \(choice.destination.episode)" + (choice.title.isEmpty ? "" : " · \(choice.title)"))
+                                    .tag(choice.destination.episode)
+                            }
+                        }
+                        .frame(maxWidth: 500).disabled(model.isWorking)
+                        if model.currentEpisode?.season ?? 0 > 0 {
+                            Button("Play Previous Episode", systemImage: "backward.end.fill") {
+                                model.playAdjacentEpisode(.previous)
+                            }
+                            .disabled(model.previousEpisode == nil)
+                            .help(model.previousEpisode.map { "Play " + $0.label } ?? "No previous episode available")
+                            Button("Play Next Episode", systemImage: "forward.end.fill") {
+                                model.playAdjacentEpisode(.next)
+                            }
+                            .disabled(model.nextEpisode == nil)
+                            .help(model.nextEpisode.map { "Play " + $0.label } ?? "No next episode available")
                         }
                     }
-                    .frame(maxWidth: 500).disabled(model.isWorking)
+                    .labelStyle(.iconOnly)
+                    .buttonStyle(.glass)
+                    .disabled(model.isWorking || model.isPreparing)
                 }
                 if let episode = model.currentEpisode {
                     Text("\(episode.title) · \(episode.label) · Local playback progress enabled")

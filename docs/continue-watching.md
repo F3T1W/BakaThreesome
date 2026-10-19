@@ -22,6 +22,20 @@ entry and is disabled while that episode is playing. Failed startup preserves
 existing progress. If the saved position is outside a changed version's duration,
 choose Play from Beginning; the app does not silently discard the old entry.
 
+The arrow buttons beside the native Episode picker play the previous or next
+numbered episode. They stop and checkpoint the current player, refresh the chosen
+page and launch its primary stream, using that episode's own saved position when
+available. Audio/subtitle preferences and the SVP setting apply to the new player.
+Playback starts only after the refreshed page provides its primary manifest; a
+website play gesture may still be required. Cancel Playback cancels this preparation.
+
+Destinations must be discovered on the current page and belong to the linked item
+and season. Gaps and season boundaries disable the corresponding button; the app
+does not guess a URL or skip to a different season. While a linked episode is
+playing, the buttons are disabled if the browser shows a different episode or
+title. Return to the playing episode or stop playback to navigate from that page.
+This is manual navigation; reaching EOF does not automatically start another episode.
+
 Movies opened on their linked base title page can be tracked as one movie.
 Unlinked website browsing, other seasons, arbitrary diagnostic streams and pages
 without a concrete episode are playable but do not record Shikimori-associated
@@ -60,6 +74,12 @@ Automatic Shikimori updates use separate watched-coverage and delivery policies;
 local EOF handling alone never triggers them.
 
 ## Verification
+
+Adjacent-navigation tests cover previous/next boundaries, missing episodes, foreign
+items and seasons, movies, and browsing away from the playing episode. A live
+Kakegurui S01E02 to S01E03 transition launched video/audio with Japanese audio and
+Russian subtitles. The reverse transition required a real website play gesture
+before continuing automatically with S01E02's saved start position.
 
 The default suite covers real SwiftData memory/disk persistence, explicit restart,
 stale-write protection, per-episode separation, checkpoints, pause, flush, EOF,
