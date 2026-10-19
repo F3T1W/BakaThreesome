@@ -49,43 +49,8 @@ struct AnimeLibraryView: View {
             }
             .padding()
             Divider()
-            if isWatchlist && !model.snapshot.isSignedIn {
-                ContentUnavailableView {
-                    Label("Connect Shikimori", systemImage: "person.crop.circle")
-                } description: {
-                    Text("Connect your account in Settings to view lists, track episodes, and rate anime.")
-                } actions: {
-                    SettingsLink { Text("Open Settings") }.buttonStyle(.glassProminent)
-                }
-            } else if let errorMessage {
-                ContentUnavailableView {
-                    Label("Could Not Load Anime", systemImage: "exclamationmark.triangle")
-                } description: { Text(errorMessage) } actions: {
-                    Button("Try Again") { reload = UUID() }.buttonStyle(.glass)
-                }
-            } else if isLoading && count == 0 {
-                Spacer()
-                ProgressView("Loading anime…")
-                Spacer()
-            } else if count == 0 {
-                ContentUnavailableView(isWatchlist ? "No Anime in This List" : "No Results",
-                                       systemImage: isWatchlist ? "bookmark" : "magnifyingglass",
-                                       description: Text(isWatchlist ? "Find anime in Catalog and add it to your list." : "Try a different title."))
-            } else {
-                AnimeGrid {
-                    if isWatchlist {
-                        ForEach(entries) { entry in
-                            animeCard(entry.anime, rate: entry.rate)
-                        }
-                    } else {
-                        ForEach(results) { anime in animeCard(anime, rate: nil) }
-                    }
-                }
-                .disabled(isLoading)
-                .overlay(alignment: .topTrailing) {
-                    if isLoading { ProgressView().controlSize(.small).padding() }
-                }
-            }
+            content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             ArtworkNotice(artwork: artwork, animeIDs: animeIDs)
             if !isWatchlist || model.snapshot.isSignedIn {
                 Divider()
@@ -107,6 +72,55 @@ struct AnimeLibraryView: View {
         .onChange(of: model.revision) { page = 1 }
         .sheet(item: $selectedAnime) { anime in
             AnimeTrackingSheet(anime: anime, model: model)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if isWatchlist && model.isRestoring {
+            ProgressView("Restoring Shikimori session…")
+        } else if isWatchlist, let restorationError = model.restorationError {
+            ContentUnavailableView {
+                Label("Could Not Restore Shikimori", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(restorationError)
+            } actions: {
+                Button("Try Again") { Task { await model.restore() } }.buttonStyle(.glass)
+            }
+        } else if isWatchlist && !model.snapshot.isSignedIn {
+            ContentUnavailableView {
+                Label("Connect Shikimori", systemImage: "person.crop.circle")
+            } description: {
+                Text("Connect your account in Settings to view lists, track episodes, and rate anime.")
+            } actions: {
+                SettingsLink { Text("Open Settings") }.buttonStyle(.glassProminent)
+            }
+        } else if let errorMessage {
+            ContentUnavailableView {
+                Label("Could Not Load Anime", systemImage: "exclamationmark.triangle")
+            } description: { Text(errorMessage) } actions: {
+                Button("Try Again") { reload = UUID() }.buttonStyle(.glass)
+            }
+        } else if isLoading && count == 0 {
+            ProgressView("Loading anime…")
+        } else if count == 0 {
+            ContentUnavailableView(isWatchlist ? "No Anime in This List" : "No Results",
+                                   systemImage: isWatchlist ? "bookmark" : "magnifyingglass",
+                                   description: Text(isWatchlist ? "Find anime in Catalog and add it to your list." : "Try a different title."))
+        } else {
+            AnimeGrid {
+                if isWatchlist {
+                    ForEach(entries) { entry in
+                        animeCard(entry.anime, rate: entry.rate)
+                    }
+                } else {
+                    ForEach(results) { anime in animeCard(anime, rate: nil) }
+                }
+            }
+            .disabled(isLoading)
+            .overlay(alignment: .topTrailing) {
+                if isLoading { ProgressView().controlSize(.small).padding() }
+            }
         }
     }
 
@@ -140,6 +154,7 @@ struct AnimeLibraryView: View {
             }
         }
         .contextMenu {
+            Button("Reload Poster") { Task { await artwork.load([anime.id], force: true) } }
             Button("Details and Progress") { selectedAnime = anime }
             Button("Open in Kinopub") { onOpenKinopub(anime, true) }
             Button("Change Kinopub Match") { onOpenKinopub(anime, false) }

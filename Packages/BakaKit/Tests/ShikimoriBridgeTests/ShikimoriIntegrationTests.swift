@@ -68,6 +68,77 @@ import Tracking
     #expect(await store.data == nil)
 }
 
+@Test func rejectedAccessTokenIsRenewedOnceAndPersistsAcrossRelaunch() async throws {
+    let transport = FakeShikimoriTransport()
+    let store = MemoryShikimoriStore()
+    let client = ShikimoriClient(transport: transport)
+    let service = ShikimoriAccountService(client: client, store: store)
+    try await service.signIn(code: "synthetic-code", credentials: credentials())
+    let restored = ShikimoriAccountService(client: client, store: store)
+    #expect(try await restored.restore().profile?.id == 42)
+    await transport.setReply(.rejectOriginalToken)
+    #expect(try await restored.list(status: .watching, page: 1).isEmpty)
+    #expect(await transport.refreshCount == 1)
+    #expect(try await restored.checkSession().id == 42)
+    // A late rejection of the old token must reuse the already rotated pair.
+    #expect(try await restored.accessToken(rejecting: "synthetic-access") == "rotated-access")
+    let relaunched = ShikimoriAccountService(client: client, store: store)
+    #expect(try await relaunched.accessToken() == "rotated-access")
+    #expect(await transport.refreshCount == 1)
+}
+
+@Test func concurrentRejectedReadsShareRotation() async throws {
+    let transport = FakeShikimoriTransport(pauseRefresh: true)
+    let service = ShikimoriAccountService(client: ShikimoriClient(transport: transport), store: MemoryShikimoriStore())
+    try await service.signIn(code: "synthetic-code", credentials: credentials())
+    await transport.setReply(.rejectOriginalToken)
+    let first = Task { try await service.checkSession() }
+    await transport.waitForRefresh()
+    let second = Task { try await service.checkSession() }
+    await transport.resumeRefresh()
+    #expect(try await first.value.id == 42)
+    #expect(try await second.value.id == 42)
+    #expect(await transport.refreshCount == 1)
+}
+
+@Test func repeatedRejectionStopsAfterOneRenewalWithoutDeletingSession() async throws {
+    let transport = FakeShikimoriTransport()
+    let store = MemoryShikimoriStore()
+    let service = ShikimoriAccountService(client: ShikimoriClient(transport: transport), store: store)
+    try await service.signIn(code: "synthetic-code", credentials: credentials())
+    await transport.setReply(.rejectReads)
+    await #expect(throws: ShikimoriError.unauthorized) { try await service.checkSession() }
+    #expect(await transport.refreshCount == 1)
+    #expect(await service.snapshot().isSignedIn)
+    #expect(await store.data != nil)
+    await transport.setReply(.normal)
+    #expect(try await service.checkSession().id == 42)
+}
+
+@Test func unavailableKeychainCanBeRetriedWithoutForgettingTheAccount() async throws {
+    let store = MemoryShikimoriStore()
+    let client = ShikimoriClient(transport: FakeShikimoriTransport())
+    try await ShikimoriAccountService(client: client, store: store).signIn(code: "synthetic-code", credentials: credentials())
+    let service = ShikimoriAccountService(client: client, store: store)
+    await store.failNextRead()
+    await #expect(throws: ShikimoriError.storageFailed) { try await service.restore() }
+    #expect(await store.data != nil)
+    #expect(try await service.restore().profile?.id == 42)
+}
+
+@Test func failedAuthorizationDoesNotHideAnUnreadSavedSession() async throws {
+    let store = MemoryShikimoriStore()
+    let transport = FakeShikimoriTransport()
+    let client = ShikimoriClient(transport: transport)
+    try await ShikimoriAccountService(client: client, store: store).signIn(code: "synthetic-code", credentials: credentials())
+    let service = ShikimoriAccountService(client: client, store: store)
+    await transport.setReply(.unauthorized)
+    await #expect(throws: ShikimoriError.unauthorized) {
+        try await service.signIn(code: "invalid-code", credentials: credentials())
+    }
+    #expect(try await service.restore().profile?.id == 42)
+}
+
 @Test func realPipeTransportFramesResponsesAndRestartsAfterShutdown() async throws {
     let script = """
     import sys,json
@@ -97,18 +168,23 @@ private func credentials() throws -> ShikimoriCredentials {
 private actor MemoryShikimoriStore: CredentialStore {
     var data: Data?
     private var shouldFail = false
+    private var readShouldFail = false
     init(data: Data? = nil) { self.data = data }
-    func read(_ key: CredentialKey) async throws -> Data? { data }
+    func read(_ key: CredentialKey) async throws -> Data? {
+        if readShouldFail { readShouldFail = false; throw CredentialStoreError.unavailable }
+        return data
+    }
     func write(_ data: Data, for key: CredentialKey) async throws {
         if shouldFail { shouldFail = false; throw CredentialStoreError.unavailable }
         self.data = data
     }
     func delete(_ key: CredentialKey) async throws { data = nil }
+    func failNextRead() { readShouldFail = true }
     func failNextWrite() { shouldFail = true }
 }
 
 private actor FakeShikimoriTransport: BridgeTransport {
-    enum Reply { case normal, wrongID, unauthorized }
+    enum Reply { case normal, wrongID, unauthorized, rejectOriginalToken, rejectReads }
     private var reply = Reply.normal
     private let expired: Bool
     private let pauseRefresh: Bool
@@ -129,7 +205,11 @@ private actor FakeShikimoriTransport: BridgeTransport {
         let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         let method = try #require(request["method"] as? String)
         let id = try #require(request["id"] as? String)
-        if reply == .unauthorized {
+        let parameters = request["parameters"] as? [String: Any]
+        let accessToken = parameters?["accessToken"] as? String
+        let isRead = method == "account.whoami" || method == "watchlist.list" || method == "anime.details"
+        if reply == .unauthorized || (isRead && (reply == .rejectReads ||
+            (reply == .rejectOriginalToken && accessToken == "synthetic-access"))) {
             return try JSONSerialization.data(withJSONObject: ["version": 1, "id": id,
                 "error": ["code": "unauthorized", "message": "secret server diagnostics"]])
         }

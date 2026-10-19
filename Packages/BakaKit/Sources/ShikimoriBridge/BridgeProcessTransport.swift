@@ -22,7 +22,7 @@ public enum ShikimoriError: Error, LocalizedError, Equatable {
         case .forbidden: "Shikimori did not allow this action. Check the user_rates permission."
         case .rateLimited: "The Shikimori request limit was reached. Wait before trying again."
         case .serviceUnavailable: "Shikimori could not be reached. Check your connection and try again."
-        case .storageFailed: "The Shikimori session could not be saved in Keychain. Retry saving or sign out."
+        case .storageFailed: "The Shikimori session could not be read or saved in Keychain. Unlock your keychain and try again."
         case .notSignedIn: "Sign in to Shikimori in Settings to use your watchlist."
         }
     }

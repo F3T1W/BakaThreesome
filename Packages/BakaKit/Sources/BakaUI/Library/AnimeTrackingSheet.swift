@@ -76,8 +76,7 @@ struct AnimeTrackingSheet: View {
         defer { isLoading = false }
         guard model.snapshot.isSignedIn else { return }
         do {
-            let token = try await model.token()
-            let detail = try await model.client.details(anime.id, accessToken: token)
+            let detail = try await model.details(anime.id)
             try Task.checkCancellation()
             rateID = detail.rate?.id
             status = detail.rate?.status ?? .planned

@@ -30,11 +30,13 @@ the installed player; it does not verify SVP interpolation.
 
 Credentials and session tokens are saved in macOS Keychain. Enter them locally;
 do not add them to source files. Check Session checks the saved session, and
-Sign Out removes it from this app. Remote access revocation is managed on Shikimori.
+Sign Out removes it from this app. If restoring the saved session fails, use
+Retry Restoring Session in Accounts or Try Again in Watchlist before reconnecting. Remote access revocation is managed on Shikimori.
 
 To track a title, find it in Catalog or Watchlist, open it, choose a list, set
 Watched episodes and Your rating, then choose Add to List or Save Changes.
-Unrated clears the score. This is manual tracking; playback does not update it yet.
+Unrated clears the score. Playback can optionally update watched counts after
+you enable automatic progress and confirm episode numbering, as described below.
 
 Shikimori registration and code exchange follow the
 [official OAuth guide](https://shikimori.io/oauth).

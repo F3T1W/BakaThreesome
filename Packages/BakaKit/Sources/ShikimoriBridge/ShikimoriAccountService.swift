@@ -1,5 +1,7 @@
 import Accounts
+import Catalog
 import Foundation
+import Tracking
 
 public struct ShikimoriAccountSnapshot: Sendable {
     public let profile: ShikimoriProfile?
@@ -22,7 +24,7 @@ public actor ShikimoriAccountService {
     private var dirty = false
     private var busy = false
     private var generation = 0
-    private var refresh: (id: UUID, task: Task<String, Error>)?
+    private var refresh: (id: UUID, task: Task<(token: String, renewed: Bool), Error>)?
 
     public init(client: ShikimoriClient, store: any CredentialStore = KeychainCredentialStore()) {
         self.client = client
@@ -56,7 +58,6 @@ public actor ShikimoriAccountService {
         guard !busy, refresh == nil else { throw ShikimoriError.invalidValues }
         busy = true
         generation += 1
-        loaded = true
         defer { busy = false }
         let tokens = try await client.exchange(code: code, credentials: credentials)
         account = StoredAccount(credentials: credentials, tokens: tokens)
@@ -69,19 +70,24 @@ public actor ShikimoriAccountService {
         try await persist()
     }
 
-    public func accessToken(forceRefresh: Bool = false) async throws -> String {
+    public func accessToken(forceRefresh: Bool = false, rejecting rejectedToken: String? = nil) async throws -> String {
         _ = try await restore()
         guard !busy, account != nil else { throw ShikimoriError.notSignedIn }
-        let flight: (id: UUID, task: Task<String, Error>)
+        let flight: (id: UUID, task: Task<(token: String, renewed: Bool), Error>)
         if let refresh { flight = refresh }
         else {
-            flight = (UUID(), Task { try await tokenOperation(force: forceRefresh) })
+            flight = (UUID(), Task { try await tokenOperation(force: forceRefresh, rejectedToken: rejectedToken) })
             refresh = flight
         }
         do {
-            let token = try await flight.task.value
+            let result = try await flight.task.value
             if refresh?.id == flight.id { refresh = nil }
-            return token
+            // A caller may have joined a non-refreshing token lookup. Honor its
+            // rejection after that lookup finishes, without rotating twice.
+            if !result.renewed && (forceRefresh || rejectedToken == result.token) {
+                return try await accessToken(forceRefresh: forceRefresh, rejecting: rejectedToken)
+            }
+            return result.token
         } catch {
             if refresh?.id == flight.id { refresh = nil }
             throw error
@@ -89,15 +95,48 @@ public actor ShikimoriAccountService {
     }
 
     public func identity() async throws -> ShikimoriProfile {
-        let token = try await accessToken()
+        _ = try await accessToken()
         if let profile = account?.profile { return profile }
+        return try await checkSession()
+    }
+
+    public func checkSession() async throws -> ShikimoriProfile {
         let originalGeneration = generation
-        let profile = try await client.whoami(token)
+        let profile = try await read { [client] token in try await client.whoami(token) }
         guard !busy, generation == originalGeneration, account != nil else { throw ShikimoriError.notSignedIn }
         account?.profile = profile
         dirty = true
         try await persist()
         return profile
+    }
+
+    public func list(status: WatchStatus?, page: Int) async throws -> [AnimeListEntry] {
+        let originalGeneration = generation
+        let profile = try await identity()
+        guard !busy, generation == originalGeneration else { throw ShikimoriError.notSignedIn }
+        return try await read { [client] token in
+            try await client.list(userID: profile.id, status: status, page: page, token: token)
+        }
+    }
+
+    public func details(_ animeID: Int64) async throws -> AnimeDetails {
+        try await read { [client] token in try await client.details(animeID, accessToken: token) }
+    }
+
+    /// Only reads are replayed after authentication rejection. Mutations remain explicit.
+    private func read<Value: Sendable>(_ action: @Sendable (String) async throws -> Value) async throws -> Value {
+        let originalGeneration = generation
+        let token = try await accessToken()
+        let value: Value
+        do { value = try await action(token) }
+        catch ShikimoriError.unauthorized {
+            guard !busy, generation == originalGeneration else { throw ShikimoriError.notSignedIn }
+            try Task.checkCancellation()
+            let renewed = try await accessToken(rejecting: token)
+            value = try await action(renewed)
+        }
+        guard !busy, generation == originalGeneration else { throw ShikimoriError.notSignedIn }
+        return value
     }
 
     public func signOut() async throws {
@@ -118,15 +157,18 @@ public actor ShikimoriAccountService {
         if let refresh { _ = try? await refresh.task.value }
     }
 
-    private func tokenOperation(force: Bool) async throws -> String {
+    private func tokenOperation(force: Bool, rejectedToken: String?) async throws -> (token: String, renewed: Bool) {
         if dirty { try await persist() }
         guard let current = account else { throw ShikimoriError.notSignedIn }
-        if !force, current.tokens.expiresAt > Date().timeIntervalSince1970 + 60 { return current.tokens.accessToken }
+        if !force, rejectedToken != current.tokens.accessToken,
+           current.tokens.expiresAt > Date().timeIntervalSince1970 + 60 {
+            return (current.tokens.accessToken, false)
+        }
         let tokens = try await client.refresh(token: current.tokens.refreshToken, credentials: current.credentials)
         account = StoredAccount(credentials: current.credentials, tokens: tokens, profile: current.profile)
         dirty = true
         try await persist()
-        return tokens.accessToken
+        return (tokens.accessToken, true)
     }
 
     private func persist() async throws {

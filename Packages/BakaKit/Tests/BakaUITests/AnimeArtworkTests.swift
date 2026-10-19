@@ -13,6 +13,7 @@ import Testing
     #expect(await transport.batches == [[1, 2]])
     #expect(model.url(for: 1)?.absoluteString == "https://example.com/poster.webp")
     #expect(model.url(for: 2) == nil)
+    #expect(model.state(for: 2) == .missing)
     await model.load([1, 2])
     #expect(await transport.batches.count == 1)
     await model.load([1, 2], force: true)
@@ -28,10 +29,11 @@ import Testing
     #expect(await transport.batches.map(\.count).sorted() == [1, 50, 50])
     await transport.fail()
     await model.load([200])
-    #expect(model.errorMessage != nil)
+    #expect(model.errorMessage(for: [200]) != nil)
+    #expect(model.state(for: 200) == .failed)
     await transport.recover()
     await model.load([200])
-    #expect(model.errorMessage == nil)
+    #expect(model.errorMessage(for: [200]) == nil)
     #expect(model.url(for: 200) != nil)
     await model.shutdown()
 }
@@ -57,4 +59,25 @@ private actor PosterTransport: BridgeTransport {
         return try JSONSerialization.data(withJSONObject: ["version": 1, "id": id, "result": values])
     }
     func shutdown() async {}
+}
+
+@MainActor
+@Test func failedImageIsNotMissingArtworkAndReloadRetriesTheSameURL() async throws {
+    let transport = try StubPosterImageTransport()
+    let url = URL(string: "https://example.com/poster.webp")!
+    await transport.setSteps([.timeout, .timeout, .timeout], for: url)
+    let pipeline = PosterImagePipeline(transport: transport, sleep: { _ in })
+    let model = AnimeArtworkModel(client: ShikimoriClient(transport: PosterTransport()), pipeline: pipeline)
+    await model.load([1])
+    let firstToken = model.retryToken(for: 1)
+    await #expect(throws: (any Error).self) { try await model.image(at: url) }
+    #expect(model.state(for: 1) == .available(url))
+    #expect(model.errorMessage(for: [1]) != nil)
+    #expect(model.errorMessage(for: [2]) == nil)
+    await model.load([1], force: true)
+    #expect(model.retryToken(for: 1) > firstToken)
+    _ = try await model.image(at: url)
+    #expect(model.errorMessage(for: [1]) == nil)
+    #expect(await transport.count(for: url) == 4)
+    await model.shutdown()
 }

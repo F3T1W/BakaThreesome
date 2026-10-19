@@ -7,8 +7,15 @@ struct AnimePosterView: View {
     @State private var image: NSImage?
     @State private var loadedURL: URL?
     @State private var isLoading = false
+    @State private var didFail = false
+
+    private struct RequestKey: Equatable {
+        let state: AnimePosterState
+        let retry: Int
+    }
 
     var body: some View {
+        let state = artwork.state(for: animeID)
         let url = artwork.url(for: animeID)
         Color.secondary.opacity(0.08)
             .aspectRatio(2 / 3, contentMode: .fit)
@@ -18,7 +25,8 @@ struct AnimePosterView: View {
                 } else {
                     VStack(spacing: 10) {
                         Image(systemName: "photo").font(.largeTitle.weight(.ultraLight))
-                        if isLoading { ProgressView().controlSize(.small) }
+                        if isLoading || state == .loading { ProgressView().controlSize(.small) }
+                        else if didFail || state == .failed { Text("Could not load poster").font(.caption) }
                         else { Text("No artwork").font(.caption) }
                     }
                     .foregroundStyle(.secondary)
@@ -26,16 +34,18 @@ struct AnimePosterView: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: 12))
             .accessibilityHidden(true)
-            .task(id: "\(url?.absoluteString ?? "none"):\(artwork.revision)") {
-                guard let url else { image = nil; loadedURL = nil; isLoading = false; return }
+            .task(id: RequestKey(state: state, retry: artwork.retryToken(for: animeID))) {
+                guard let url else { image = nil; loadedURL = nil; isLoading = false; didFail = false; return }
                 guard loadedURL != url || image == nil else { return }
-                image = nil; loadedURL = nil; isLoading = true
+                image = nil; loadedURL = nil; isLoading = true; didFail = false
                 defer { if !Task.isCancelled { isLoading = false } }
                 do {
                     let result = try await artwork.image(at: url)
                     try Task.checkCancellation()
                     image = result; loadedURL = url
-                } catch { }
+                } catch {
+                    if !Task.isCancelled, !(error is CancellationError) { didFail = true }
+                }
             }
     }
 }
@@ -76,7 +86,7 @@ struct ArtworkNotice: View {
     let artwork: AnimeArtworkModel
     let animeIDs: [Int64]
     var body: some View {
-        if let error = artwork.errorMessage {
+        if let error = artwork.errorMessage(for: animeIDs) {
             HStack {
                 Label(error, systemImage: "photo.badge.exclamationmark")
                     .font(.caption).foregroundStyle(.secondary)

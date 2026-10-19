@@ -48,6 +48,7 @@ struct ContinueWatchingView: View {
                             }
                         }
                         .contextMenu {
+                            Button("Reload Poster") { Task { await artwork.load([entry.context.animeID.rawValue], force: true) } }
                             Button("Continue") { onResume(entry, false) }.disabled(model.activeEpisodeID == entry.id || isPreparingPlayback)
                             Button("Play from Beginning") { onResume(entry, true) }.disabled(isPreparingPlayback)
                             Button("Remove from Continue Watching", role: .destructive) { Task { await model.remove(entry) } }

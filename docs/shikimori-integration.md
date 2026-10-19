@@ -28,8 +28,10 @@ transport and rate limits. Requests batch up to 50 distinct IDs and select the
 Catalog, Watchlist and Continue Watching share a responsive native thumbnail grid.
 Each card shows the poster with its title underneath; details/progress, Kinopub
 matching and continuation actions remain available. Missing or unavailable artwork
-uses a fixed-size placeholder without blocking the title list. A poster metadata
-error offers Reload Posters. Metadata and decoded images are shared between views;
+uses a fixed-size placeholder without blocking the title list. Missing artwork is
+distinguished from metadata/image request failures. Failed posters offer Reload
+Posters for the current page or Reload Poster in a card context menu.
+Metadata and decoded images are shared between views;
 HTTP responses also use a dedicated URL cache. No credentials or browser cookies
 are attached to image requests.
 
@@ -107,3 +109,61 @@ subject is `feat(shikimori): integrate ShikimoriSharp by JustRoxy`; include the
 upstream URL and exact revision in its body. A commit alone does not notify the
 author. Use Co-authored-by only for actual coauthorship. No public fork or upstream
 message has been created as part of this integration.
+
+## Poster loading resilience
+
+A dedicated actor coalesces image downloads by URL and permits at most six active
+requests globally. Extra requests wait outside URLSession, so queue time does not
+consume their network timeout. The session also limits connections per host to six.
+Thumbnail decoding and pixel caching use ImageIO off MainActor, with a 640-pixel
+maximum dimension and a 64 MiB decoded-image cache. URLSession keeps its HTTP cache.
+Requests carry no account credentials or browser cookies.
+
+Image timeouts, temporary connection failures, HTTP 408/429 and 5xx responses retry
+twice with backoff. Backoff releases the request slot so healthy images can proceed.
+Retry-After is respected for waits up to a minute; longer waits require a later manual
+retry. Permanent HTTP errors and invalid image data are surfaced without automatic
+retry. Failed HTTP responses and invalid image bodies are evicted from the HTTP
+cache so a manual retry does not keep receiving a cached error. Failed results
+are never cached as a missing poster. Transient poster-metadata
+requests also retry twice; a failed batch cannot clear another batch's error.
+
+View cancellation removes its subscription. A shared image continues for remaining
+consumers; when the last consumer disappears, queued or active work is cancelled.
+Reloading a failed image at the same URL changes only that card's retry token rather
+than cancelling every image whenever shared metadata changes. Error banners refer
+only to the current page's titles. Metadata loading, confirmed missing artwork and
+request failure have separate presentation states. A network/decode failure shows
+Could not load poster; No artwork is reserved for a successful null-poster response.
+
+Swift tests exercise real ImageIO decoding of generated PNGs with synthetic image
+transport: parallel bounded loading, URL deduplication, cached reuse, retries after
+timeout/503, Retry-After, permanent failures, cancellation/slot reuse, and retrying an
+unchanged image URL through the view model. These checks do not alter remote accounts.
+
+ImageIO validates the actual image bytes even when a CDN sends a generic
+Content-Type. On 2026-10-19 the rebuilt Catalog rendered live posters and its
+Reload Poster context action was exercised. The restarted app requested Shikimori
+sign-in for private lists, so the private-list live check was not completed.
+
+## Session recovery
+
+Startup restores the saved account from Keychain without requiring a network
+request. A missing item shows the sign-in form. A read or decoding failure shows
+Could Not Restore Shikimori in Watchlist and Session unavailable in Accounts,
+with a retry action. The saved item is preserved; a failed read is not treated as
+an absent account. Forget Saved Session remains an explicit user action.
+
+Watchlist reads, progress-detail reads and Check Session retry once after an
+unauthorized response, using a refreshed token pair. Concurrent requests share
+token renewal; a delayed rejection of an older token reuses the current pair.
+Repeated rejection, refresh failure and network errors remain visible and never
+silently delete the saved account. Mutations are not replayed automatically by
+this recovery path. Check Session also updates and persists the account profile.
+
+Regression tests cover recovery after a temporary Keychain read failure, a failed
+new authorization while an unread session exists, rejected tokens, concurrent
+renewal and restoration of the rotated pair by a new account service. A live
+normal Quit and relaunch restored the existing Watchlist without reauthorization
+on 2026-10-19. Forced token revocation and a locked login keychain have not been
+exercised against the real account.

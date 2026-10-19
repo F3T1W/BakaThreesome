@@ -1,3 +1,5 @@
+import Accounts
+import Catalog
 import Foundation
 import Observation
 import ShikimoriBridge
@@ -9,6 +11,8 @@ final class ShikimoriModel: EpisodeProgressClient {
     let client: ShikimoriClient
     private let account: ShikimoriAccountService
     private(set) var snapshot = ShikimoriAccountSnapshot.signedOut
+    private(set) var isRestoring = false
+    private(set) var restorationError: String?
     private(set) var isBusy = false
     private(set) var isSaving = false
     private(set) var revision = 0
@@ -20,10 +24,9 @@ final class ShikimoriModel: EpisodeProgressClient {
     private var progressTask: Task<ProgressDecision, Error>?
     private var saveTask: Task<AnimeUserRate, Error>?
 
-    init() {
-        let client = ShikimoriClient()
+    init(client: ShikimoriClient = ShikimoriClient(), store: any CredentialStore = KeychainCredentialStore()) {
         self.client = client
-        account = ShikimoriAccountService(client: client)
+        account = ShikimoriAccountService(client: client, store: store)
     }
 
     var credentials: ShikimoriCredentials? {
@@ -31,13 +34,16 @@ final class ShikimoriModel: EpisodeProgressClient {
     }
 
     func restore() async {
-        guard !isBusy else { return }
+        guard !isBusy, !isRestoring else { return }
+        isRestoring = true
+        restorationError = nil
+        defer { isRestoring = false }
         do { snapshot = try await account.restore() }
-        catch { errorMessage = error.localizedDescription }
+        catch { restorationError = error.localizedDescription }
     }
 
     func signIn() {
-        guard !isBusy, !isSaving, let credentials else { return }
+        guard !isBusy, !isRestoring, !isSaving, let credentials else { return }
         let code = authorizationCode.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty else { return }
         run {
@@ -48,15 +54,14 @@ final class ShikimoriModel: EpisodeProgressClient {
     }
 
     func signOut() {
-        guard !isBusy, !isSaving else { return }
+        guard !isBusy, !isRestoring, !isSaving else { return }
         run { try await self.account.signOut() }
     }
 
     func retrySession() {
-        guard !isBusy, !isSaving else { return }
+        guard !isBusy, !isRestoring, !isSaving else { return }
         run {
-            let token = try await self.account.accessToken()
-            _ = try await self.client.whoami(token)
+            _ = try await self.account.checkSession()
         }
     }
 
@@ -64,7 +69,10 @@ final class ShikimoriModel: EpisodeProgressClient {
         isBusy = true
         errorMessage = nil
         operation = Task {
-            do { try await action() }
+            do {
+                try await action()
+                restorationError = nil
+            }
             catch { errorMessage = error.localizedDescription }
             snapshot = await account.snapshot()
             revision += 1
@@ -73,19 +81,18 @@ final class ShikimoriModel: EpisodeProgressClient {
         }
     }
 
-    func token() async throws -> String {
-        guard !isBusy else { throw ShikimoriError.notSignedIn }
-        return try await account.accessToken()
+    func details(_ animeID: Int64) async throws -> AnimeDetails {
+        guard !isBusy, !isRestoring else { throw ShikimoriError.notSignedIn }
+        return try await account.details(animeID)
     }
 
     func list(status: WatchStatus?, page: Int) async throws -> [AnimeListEntry] {
-        let profile = try await account.identity()
-        let token = try await token()
-        return try await client.list(userID: profile.id, status: status, page: page, token: token)
+        guard !isBusy, !isRestoring else { throw ShikimoriError.notSignedIn }
+        return try await account.list(status: status, page: page)
     }
 
     func save(animeID: Int64, rateID: Int64?, status: WatchStatus, episodes: Int, score: Int) async throws -> AnimeUserRate {
-        guard !isBusy, !isSaving else { throw ShikimoriError.invalidValues }
+        guard !isBusy, !isRestoring, !isSaving else { throw ShikimoriError.invalidValues }
         isSaving = true
         let task = Task {
             let profile = try await account.identity()
@@ -102,7 +109,7 @@ final class ShikimoriModel: EpisodeProgressClient {
     }
 
     func advance(_ episode: WatchedEpisode) async throws -> ProgressDecision {
-        guard !isBusy, !isSaving else { throw ShikimoriError.invalidValues }
+        guard !isBusy, !isRestoring, !isSaving else { throw ShikimoriError.invalidValues }
         isSaving = true
         let task = Task {
             let profile = try await account.identity()
