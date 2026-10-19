@@ -22,6 +22,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     var progressError: String? { playback.progressError }
     private(set) var isWorking = false
     private(set) var isPreparing = false
+    private(set) var streamDiagnostic: String?
     private(set) var recoveryPoint: PlaybackRecoveryPoint?
     @ObservationIgnored private var playbackTarget: PlaybackRecoveryPoint?
     private(set) var websiteOrigin = URL(string: "https://gxux.pkr.ovh")!
@@ -52,7 +53,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
             guard let self, let target = self.playbackTarget, target.context == context,
                   self.currentEpisode?.id == context.id, self.websiteOrigin == target.origin else { return }
             self.recoveryPoint = PlaybackRecoveryPoint(context: context, origin: target.origin, seconds: seconds)
-            self.status = "The episode stream was interrupted. Retry playback to refresh it."
+            self.status = "Playback was interrupted. Retry playback to refresh this episode."
         }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = KinopubWebsiteSession.dataStore()
@@ -111,6 +112,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
 
     private func loadPage(_ url: URL, refresh: Bool = false) {
         hasLoaded = true; finishedURL = nil
+        streamDiagnostic = nil
         errorMessage = nil; candidates = []; episodeChoices = []; audioSourceID = nil
         address = url.absoluteString
         webView.load(URLRequest(url: url, cachePolicy: refresh ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy))
@@ -156,6 +158,19 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
             self.pendingResume = point
             self.isPreparing = true
             self.status = "Refreshing the episode stream for playback…"
+        }
+    }
+
+    func checkStream() {
+        guard let manifest = primaryManifest, operation == nil else { return }
+        let page = finishedURL
+        streamDiagnostic = nil
+        run {
+            let agent = try await self.webView.evaluateJavaScript("navigator.userAgent") as? String
+            let result = await StreamDiagnosticProbe().run(url: manifest.url, webView: self.webView,
+                                                          origin: self.websiteOrigin, userAgent: agent)
+            try Task.checkCancellation()
+            if self.finishedURL == page { self.streamDiagnostic = result }
         }
     }
 
@@ -216,6 +231,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         finishedURL = nil
+        streamDiagnostic = nil
         candidates = []; episodeChoices = []
         audioSourceID = nil
         errorMessage = nil

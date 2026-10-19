@@ -193,3 +193,24 @@ import Testing
         throw error
     }
 }
+
+@Test func networkDiagnosticsNeverExposeAddressesTokensOrHeaders() throws {
+    var diagnostics = MPVNetworkDiagnostics()
+    let texts = [
+        "Opening 'https://user:password@cdn.example.com/path/secret-token/video.m3u8?signature=secret' for reading",
+        "Cookie: session=private-cookie", "Authorization: Bearer private-token",
+        "TLS handshake failed for https://cdn.example.com/secret-token",
+        "HTTP error 403 for https://cdn.example.com/secret-token", "Connection timed out",
+        "Failed to open segment https://cdn.example.com/secret-token/1.ts"
+    ]
+    for text in texts {
+        let data = try JSONSerialization.data(withJSONObject: ["event": "log-message", "text": text])
+        diagnostics.receive(try JSONDecoder().decode(MPVMessage.self, from: data))
+    }
+    #expect(diagnostics.lines == ["Opening playlist · cdn.example.com", "TLS negotiation or read failed",
+                                  "HTTP request rejected", "Network timeout", "Segment open failed"])
+    let report = diagnostics.lines.joined(separator: "\n")
+    for secret in ["secret", "private", "password", "user:", "Cookie", "Authorization", "https://"] {
+        #expect(!report.contains(secret))
+    }
+}

@@ -63,6 +63,20 @@ struct KinopubBrowserView: View {
                 if let error = model.progressError {
                     Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)
                 }
+                if model.primaryManifest != nil || model.streamDiagnostic != nil {
+                    DisclosureGroup("Stream Diagnostics") {
+                        Button("Check Stream") { model.checkStream() }
+                            .buttonStyle(.glass)
+                            .disabled(model.isWorking || model.primaryManifest == nil)
+                        if let diagnostic = model.streamDiagnostic {
+                            ScrollView {
+                                Text(diagnostic).font(.caption.monospaced()).textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 160)
+                        }
+                    }
+                }
                 Text(model.svpStatus).font(.caption).foregroundStyle(.secondary)
                 Text(model.status).font(.caption).foregroundStyle(.secondary)
                 if let error = model.errorMessage {

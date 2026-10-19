@@ -38,6 +38,7 @@ final class MPVPlaybackModel {
         await stop()
         status = "Starting mpv…"
         progressError = nil
+        var phase = "starting the player"
         do {
             try Task.checkCancellation()
             let environment = PlaybackEnvironment.discover()
@@ -53,6 +54,7 @@ final class MPVPlaybackModel {
             status = String(format: "mpv started in %.2f s. Loading the episode…", launchSeconds)
             Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
                 .notice("Player IPC ready in \(launchSeconds, privacy: .public) seconds")
+            phase = "loading the media stream"
             var activeSource = source
             do { try await player.load(activeSource) }
             catch PlaybackError.commandRejected where source.usesFastHLSStartup {
@@ -60,13 +62,16 @@ final class MPVPlaybackModel {
                 activeSource = try source.conservativeStartup()
                 try await player.load(activeSource)
             }
+            phase = "preparing SVP"
             try await preparation
+            phase = "waiting for video and audio"
+            status = "The stream is loaded. Waiting for video, audio and player filters…"
             let mediaReady = ContinuousClock.now
             var retriedProbe = !activeSource.usesFastHLSStartup
             var deadline = ContinuousClock.now.advanced(by: .seconds(20))
             while true {
                 try Task.checkCancellation()
-                let state = try await player.snapshot()
+                let state = try await player.snapshot(until: deadline)
                 if state.hasFailed { throw PlaybackError.mediaFailed }
                 if let start = source.startSeconds, start > 0,
                    let duration = state.position.duration, start >= duration - 1 {
@@ -117,7 +122,9 @@ final class MPVPlaybackModel {
             }
         } catch {
             await stop()
-            status = "Playback did not start."
+            status = "Playback did not start while \(phase)."
+            Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
+                .notice("Startup failed while \(phase, privacy: .public)")
             throw error
         }
     }
@@ -194,7 +201,7 @@ final class MPVPlaybackModel {
         monitor = Task { [weak self] in
             do {
                 while !Task.isCancelled {
-                    let snapshot = try await player.snapshot()
+                    let snapshot = try await player.snapshot(until: ContinuousClock.now.advanced(by: .seconds(15)))
                     try Task.checkCancellation()
                     if snapshot.hasFailed { throw PlaybackError.mediaFailed }
                     await self?.capture(snapshot)
@@ -217,7 +224,7 @@ final class MPVPlaybackModel {
             } catch {
                 let episode = self?.activeEpisode
                 let seconds = self?.lastPosition ?? 0
-                let streamFailed = (error as? PlaybackError) == .mediaFailed
+                let streamFailed = (error as? PlaybackError).map(PlaybackRecoveryPoint.canRetry) ?? false
                 // A stream failure and an externally closed window both preserve the last good sample.
                 await self?.flush()
                 await player.stop()
@@ -226,7 +233,7 @@ final class MPVPlaybackModel {
                 self?.history.activeEpisodeID = nil
                 self?.svpStatus = "SVP: Off"
                 self?.status = streamFailed
-                    ? "The stream was interrupted. Retry playback to get a fresh stream at the last known position."
+                    ? "Playback was interrupted. Retry playback at the last known position."
                     : "Player closed. The last sampled position was saved if storage was available."
                 if streamFailed, let episode { self?.onStreamFailure?(episode, seconds) }
             }

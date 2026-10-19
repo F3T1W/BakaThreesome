@@ -70,7 +70,7 @@ subtitles, video-only playlists and audio-only playlists. Prefer the episode but
 A short live episode check confirmed simultaneous video and audio. CDN timeouts
 were also observed; long-session stability remains unverified. SVP interpolation
 was confirmed on a live episode at 23.98 → 59.94 fps and a generated local video
-at 24 → 60 fps. Live startup took nearly one minute. Reopen the episode and rescan if a signed source has expired.
+at 24 → 60 fps. Earlier trials hit long startup delays; a later compatibility-profile trial with SVP was ready in about 26 seconds. This is a single observation, not a startup guarantee. Reopen the episode and rescan if a signed source has expired.
 
 ## Current boundary
 
@@ -106,3 +106,9 @@ user gesture. Play from Beginning refreshes the stream and starts at zero.
 Cancel Playback stops a pending attempt. Retry does not change the title match,
 list status or rating. Automatic watched coverage starts a new player session;
 coverage from the interrupted session is not merged into the new one.
+
+For a failed stream, expand Stream Diagnostics in Kinopub and choose Check Stream.
+The bounded check compares browser/native HTTP responses and a paused diagnostic
+mpv. Reports include timing and safe network categories, without signed addresses
+or credentials. Cancel Playback stops the check. It does not test SVP or update
+Shikimori progress.

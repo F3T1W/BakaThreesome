@@ -29,8 +29,9 @@
 The process uses `--no-config`, `--hwdec=auto-copy`, `--hr-seek-framedrop=no`,
 `--no-resume-playback`, and a 15-second network timeout. The HLS options
 `http_persistent=0,http_multiple=0` remain the compatibility baseline. HTTP(S)
-`.m3u8` sources first use per-file `http_persistent=1,http_multiple=1` and
-`demuxer-lavf-probe-info=nostreams`. Other formats retain full probing.
+`.m3u8` sources use full stream probing and the compatibility baseline by default.
+The experimental reduced-probing profile remains an explicit source option for
+controlled tests; normal app playback no longer opts into it.
 See [Startup latency](#startup-latency) for fallback and validation.
 No fixed User-Agent, Origin, Referer, signed stream URL, or token is embedded.
 
@@ -148,9 +149,11 @@ headers or credentials. The process/IPC timing starts at the playback action and
 preparation and cleanup of a previous player;
 media timing includes any remaining SVP preparation. It is not a first-frame metric.
 
-Network HLS sources try reduced stream-info probing plus persistent/parallel HTTP
-connections. This retains the original master manifest and its track choices.
-One compatibility reload restores full probing and the old HTTP settings after
+Network HLS sources use full stream-info probing with persistent/parallel HLS
+connections disabled by default. The original master manifest and its track
+choices remain intact. The earlier experimental reduced-probing profile timed
+out on a live multi-track manifest and is no longer selected by normal app
+playback. Explicit experimental sources still have one compatibility reload after
 a load rejection or two seconds without the expected decoder metadata.
 For linked episodes, fast mode waits for both video and audio before reporting
 success. Compatibility mode retains the existing video-only warning behavior.
@@ -234,3 +237,45 @@ attempt. Cancel Playback stopped that attempt, removed the pending retry and
 retained the 1:22 checkpoint. Successful video recovery on that CDN and sustained
 playback after a real mid-episode interruption remain unverified. No Shikimori
 list entries were changed by the short startup trial.
+
+## Stream diagnosis and compatible defaults
+
+The Kinopub panel includes a collapsed Stream Diagnostics section. Check Stream
+compares a bounded browser fetch with an ephemeral URLSession request using the
+same User-Agent, Referer and Origin, without transferring browser cookies. It
+checks the master, one video playlist, one audio playlist and short segment
+samples. It then opens the complete master in a paused, headless diagnostic mpv
+using app defaults, with a 35-second media-open deadline. This player does not
+register with SVP or record progress. Cancel Playback and Quit cancel the probe.
+These are samples; they do not verify every rendition or segment.
+
+The report includes HTTP statuses, timing, HLS track counts, codec presence and
+allowlisted mpv network categories/host names. It never displays response bodies,
+signed paths, queries, cookies, authorization headers or arbitrary mpv log text.
+Bodies and addresses remain in memory, samples are bounded, and native sessions
+have no URL cache or credential storage. Ordinary players do not enable debug
+log messages. Navigating clears the old report.
+
+On 2026-10-19, the tested episode's master contained three variants, fifteen audio
+renditions and one subtitle rendition. Browser and URLSession master/track reads
+returned HTTP 200; segment samples returned HTTP 206 in under about 1.3 seconds.
+An experimental complete-master probe reached its 35-second deadline. Full
+probing with compatibility connections opened video and audio in a headless
+check in 19.73 seconds. A normal linked app run without SVP then confirmed video,
+audio and advancing resume position, ready in 25.50 seconds. These are individual
+observations with dynamically routed CDN responses, not a controlled speed ratio.
+They do not establish a particular FFmpeg internal defect.
+
+Player snapshots now tolerate temporary IPC response timeouts while filters
+initialize, within the existing 20-second startup readiness budget and a
+15-second monitoring budget. These budgets bound retries; a command already in
+flight is still bounded by its own timeout. Each individual IPC command retains
+its two-second limit. Disconnects and cancellation are immediate. A sustained timeout stops
+the owned player and preserves the retry point. Startup errors identify their
+phase so media-open timeouts can be distinguished from filter/readiness failures.
+
+After bounded IPC timeout handling was added, a linked Continue Watching run with
+SVP enabled confirmed simultaneous video/audio and active interpolation at
+23.98 → 59.94 fps, ready in 26.03 seconds. It resumed the existing episode position,
+advanced normally and was stopped through the app. This is a short live success,
+not a whole-episode stability result or a guarantee about future CDN routing.

@@ -72,6 +72,21 @@ public enum PlaybackError: Error, LocalizedError, Equatable {
 }
 
 public extension PlaybackEngine {
+    /// A filter can briefly block mpv's IPC thread. Retry only response timeouts,
+    /// bounded by a caller-owned deadline; disconnects and cancellation remain immediate.
+    func snapshot(until deadline: ContinuousClock.Instant) async throws -> PlaybackSnapshot {
+        while true {
+            try Task.checkCancellation()
+            guard ContinuousClock.now < deadline else { throw PlaybackError.timedOut }
+            do { return try await snapshot() }
+            catch PlaybackError.timedOut {
+                guard ContinuousClock.now < deadline else { throw PlaybackError.timedOut }
+                let next = min(ContinuousClock.now.advanced(by: .milliseconds(250)), deadline)
+                try await Task.sleep(until: next, clock: .continuous)
+            }
+        }
+    }
+
     func load(_ url: URL) async throws {
         try await load(PlaybackSource(url: url))
     }

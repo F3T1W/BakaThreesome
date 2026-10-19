@@ -9,7 +9,7 @@ public struct PlaybackSource: Sendable {
     public let origin: URL?
     public let userAgent: String?
 
-    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil, startSeconds: Double? = nil, fastHLSStartup: Bool = true) throws {
+    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil, startSeconds: Double? = nil, fastHLSStartup: Bool = false) throws {
         guard url.isFileURL || (["http", "https"].contains(url.scheme?.lowercased() ?? "")
                                && url.host != nil && url.user == nil && url.password == nil),
               referrer.map({ $0.scheme == "https" && $0.host != nil && $0.user == nil && $0.password == nil }) ?? true,

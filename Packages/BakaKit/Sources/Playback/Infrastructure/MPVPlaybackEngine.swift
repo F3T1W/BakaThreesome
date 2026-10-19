@@ -12,14 +12,16 @@ public actor MPVPlaybackEngine: PlaybackEngine {
     private let executable: URL
     private let headless: Bool
     private let enableSVP: Bool
+    private let networkDiagnosticsEnabled: Bool
     private var session: Session?
     private var ready = false
     private var stopTask: Task<Void, Never>?
 
-    public init(executable: URL, headless: Bool = false, enableSVP: Bool = false) {
+    public init(executable: URL, headless: Bool = false, enableSVP: Bool = false, networkDiagnostics: Bool = false) {
         self.executable = executable
         self.headless = headless
         self.enableSVP = enableSVP && !headless
+        networkDiagnosticsEnabled = networkDiagnostics
     }
 
     public func start() async throws {
@@ -75,6 +77,9 @@ public actor MPVPlaybackEngine: PlaybackEngine {
             }
             try ensureCurrent(owned.id)
             try Task.checkCancellation()
+            if networkDiagnosticsEnabled {
+                _ = try await owned.connection.request([.string("request_log_messages"), .string("debug")])
+            }
             ready = true
         } catch {
             if session?.id == owned.id { await stop() }
@@ -140,6 +145,11 @@ public actor MPVPlaybackEngine: PlaybackEngine {
             hasEnded: eof == .bool(true) && !hasFailed, hasFailed: hasFailed,
             speed: speed ?? 0, isSeeking: seeking != .bool(false)
         )
+    }
+
+    public func networkDiagnostics() async -> [String] {
+        guard let session else { return [] }
+        return await session.connection.networkDiagnostics()
     }
 
     public func interpolationStatus() async throws -> SVPInterpolationStatus {

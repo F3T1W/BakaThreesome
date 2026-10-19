@@ -35,7 +35,7 @@ import Testing
     let source = try PlaybackSource(url: URL(string: "https://example.com/manifest/master.m3u8?synthetic=1")!,
                                     referrer: URL(string: "https://example.com/")!, userAgent: "Synthetic Browser",
                                     audioURL: URL(string: "https://example.com/audio.m3u8")!,
-                                    origin: URL(string: "https://example.com")!, startSeconds: 42.5)
+                                    origin: URL(string: "https://example.com")!, startSeconds: 42.5, fastHLSStartup: true)
     #expect(source.usesFastHLSStartup)
     #expect(source.mpvOptions["demuxer-lavf-probe-info"] == .string("nostreams"))
     #expect(source.mpvOptions["demuxer-lavf-o"] == .string("http_persistent=1,http_multiple=1"))
@@ -68,4 +68,11 @@ private actor RecoveringProbe {
         if calls == 1 { throw PlaybackError.probeFailed }
         return PlayerCapabilities(version: "mpv synthetic", hasVapourSynth: true)
     }
+}
+
+@Test func networkHLSDefaultsToCompleteMetadataAndCompatibleConnections() throws {
+    let source = try PlaybackSource(url: URL(string: "https://example.com/master.m3u8")!)
+    #expect(!source.usesFastHLSStartup)
+    #expect(source.mpvOptions["demuxer-lavf-probe-info"] == .string("auto"))
+    #expect(source.mpvOptions["demuxer-lavf-o"] == .string("http_persistent=0,http_multiple=0"))
 }

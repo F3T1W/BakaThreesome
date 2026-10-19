@@ -10,6 +10,7 @@ final class MPVConnection: @unchecked Sendable {
     private var buffer = MPVLineBuffer()
     private var nextRequestID = 0
     private var fileState = MPVFileState()
+    private var diagnostics = MPVNetworkDiagnostics()
 
     func connect(to path: String) async throws {
         try await perform {
@@ -66,6 +67,7 @@ final class MPVConnection: @unchecked Sendable {
                 while true {
                     while let message = try self.buffer.nextMessage() {
                         self.fileState.receive(message)
+                        self.diagnostics.receive(message)
                         if awaitFileLoaded {
                             if message.event == "file-loaded" { loaded = true }
                             if message.event == "end-file", message.reason == "error" {
@@ -99,6 +101,10 @@ final class MPVConnection: @unchecked Sendable {
         } onCancel: {
             cancellation.cancel()
         }
+    }
+
+    func networkDiagnostics() async -> [String] {
+        (try? await perform { self.diagnostics.lines }) ?? []
     }
 
     func mediaHasFailed() async throws -> Bool {
