@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 import Observation
+import OSLog
 import Playback
 import Tracking
 
@@ -14,17 +15,23 @@ final class MPVPlaybackModel {
     private(set) var status = ""
     private(set) var svpStatus = "SVP: Off"
     private(set) var progressError: String?
+    private let progress: ProgressSyncModel
     private let history: ResumeLibraryModel
+    @ObservationIgnored private let capabilityCache = MPVCapabilityCache()
+    @ObservationIgnored private var warmup: Task<Void, Never>?
     @ObservationIgnored private var engine: MPVPlaybackEngine?
     @ObservationIgnored private var recorder: ResumeRecorder?
     @ObservationIgnored private var monitor: Task<Void, Never>?
 
-    init(history: ResumeLibraryModel) { self.history = history }
+    init(history: ResumeLibraryModel, progress: ProgressSyncModel) {
+        self.history = history; self.progress = progress
+    }
 
-    func start(source: PlaybackSource, episode: EpisodeContext?) async throws {
+    func start(source: PlaybackSource, episode: EpisodeContext?, requestedAt: ContinuousClock.Instant? = nil) async throws {
         guard !isWorking else { throw PlaybackError.alreadyRunning }
         isWorking = true
         defer { isWorking = false }
+        let requested = requestedAt ?? ContinuousClock.now
         await stop()
         status = "Starting mpv…"
         progressError = nil
@@ -32,23 +39,28 @@ final class MPVPlaybackModel {
             try Task.checkCancellation()
             let environment = PlaybackEnvironment.discover()
             guard let executable = environment.mpvURL else { throw PlaybackError.playerNotFound }
-            if useSVP {
-                guard let svp = environment.svpURL,
-                      try await MPVCapabilityProbe(executable: executable).inspect().hasVapourSynth else {
-                    throw PlaybackError.svpUnavailable
-                }
-                let configuration = NSWorkspace.OpenConfiguration()
-                configuration.activates = false
-                do { _ = try await NSWorkspace.shared.openApplication(at: svp, configuration: configuration) }
-                catch { throw PlaybackError.svpUnavailable }
-            }
             try Task.checkCancellation()
             let player = MPVPlaybackEngine(executable: executable, enableSVP: useSVP)
             engine = player
             svpStatus = useSVP ? "SVP: Waiting for video…" : "SVP: Off"
+            async let preparation: Void = prepareSVP(environment, enabled: useSVP)
             try await player.start()
-            try await player.load(source)
-            let deadline = ContinuousClock.now.advanced(by: .seconds(20))
+            let playerReady = ContinuousClock.now
+            let launchSeconds = requested.duration(to: playerReady).secondsValue
+            status = String(format: "mpv started in %.2f s. Loading the episode…", launchSeconds)
+            Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
+                .notice("Player IPC ready in \(launchSeconds, privacy: .public) seconds")
+            var activeSource = source
+            do { try await player.load(activeSource) }
+            catch PlaybackError.commandRejected where source.usesFastHLSStartup {
+                try Task.checkCancellation()
+                activeSource = try source.conservativeStartup()
+                try await player.load(activeSource)
+            }
+            try await preparation
+            let mediaReady = ContinuousClock.now
+            var retriedProbe = !activeSource.usesFastHLSStartup
+            var deadline = ContinuousClock.now.advanced(by: .seconds(20))
             while true {
                 try Task.checkCancellation()
                 let state = try await player.snapshot()
@@ -56,13 +68,25 @@ final class MPVPlaybackModel {
                    let duration = state.position.duration, start >= duration - 1 {
                     throw ResumeStartError.positionOutsideMedia
                 }
+                if !retriedProbe, mediaReady.duration(to: .now) >= .seconds(2),
+                   state.videoCodec == nil || (episode != nil && state.audioCodec == nil) {
+                    // Preserve compatibility with HLS manifests that omit usable codec information.
+                    retriedProbe = true
+                    activeSource = try source.conservativeStartup()
+                    try await player.load(activeSource)
+                    deadline = ContinuousClock.now.advanced(by: .seconds(20))
+                    continue
+                }
                 if !state.isIdle, state.videoCodec != nil || state.audioCodec != nil {
                     if episode != nil, state.videoCodec == nil {
                         // A linked episode must wait for video, even if audio becomes ready first.
+                    } else if activeSource.usesFastHLSStartup && episode != nil && state.audioCodec == nil {
+                        // Give fast probing a short audio readiness window before the compatibility retry.
                     } else if source.audioURL != nil, state.audioCodec == nil {
                         // Separate audio can arrive after the video track.
                     } else {
                         if let episode, episode.isValid, state.videoCodec != nil {
+                            progress.begin(episode)
                             recorder = ResumeRecorder(context: episode, store: history.store)
                             history.activeEpisodeID = episode.id
                         }
@@ -71,6 +95,12 @@ final class MPVPlaybackModel {
                             : (state.videoCodec != nil ? "mpv is playing video only." : "mpv is playing audio only.")
                         if let episode, recorder != nil { status += " \(episode.title) · \(episode.label)" }
                         else { status += " Playback progress is not linked to a Shikimori episode." }
+                        let total = requested.duration(to: .now).secondsValue
+                        let process = requested.duration(to: playerReady).secondsValue
+                        let media = playerReady.duration(to: mediaReady).secondsValue
+                        status += String(format: " Ready in %.2f s.", total)
+                        Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
+                            .notice("Startup seconds: player=\(process, privacy: .public), media=\(media, privacy: .public), ready=\(total, privacy: .public), compatibilityRetry=\(retriedProbe && source.usesFastHLSStartup, privacy: .public)")
                         await capture(state)
                         startMonitoring(player)
                         return
@@ -86,6 +116,34 @@ final class MPVPlaybackModel {
         }
     }
 
+    func warmUp() {
+        guard warmup == nil, let executable = PlaybackEnvironment.discover().mpvURL else { return }
+        warmup = Task { _ = try? await capabilityCache.inspect(executable) }
+    }
+
+    func shutdown() async {
+        await stop()
+        await capabilityCache.shutdown()
+        await warmup?.value
+    }
+
+    private func prepareSVP(_ environment: PlaybackEnvironment, enabled: Bool) async throws {
+        guard enabled else { return }
+        guard let svp = environment.svpURL, let executable = environment.mpvURL,
+              try await capabilityCache.inspect(executable).hasVapourSynth else {
+            throw PlaybackError.svpUnavailable
+        }
+        try Task.checkCancellation()
+        let resolved = svp.resolvingSymlinksInPath()
+        if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleURL?.resolvingSymlinksInPath() == resolved }) {
+            return
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        do { _ = try await NSWorkspace.shared.openApplication(at: svp, configuration: configuration) }
+        catch { throw PlaybackError.svpUnavailable }
+    }
+
     func stop() async {
         monitor?.cancel()
         await monitor?.value
@@ -94,12 +152,14 @@ final class MPVPlaybackModel {
         await flush()
         await engine?.stop()
         engine = nil; recorder = nil
+        progress.begin(nil)
         history.activeEpisodeID = nil
         svpStatus = "SVP: Off"
         if !status.isEmpty { status = "Playback stopped." }
     }
 
     private func capture(_ state: PlaybackSnapshot, force: Bool = false) async {
+        await progress.capture(state)
         guard let recorder else { return }
         do {
             if try await recorder.capture(state, force: force) { await history.refresh() }
@@ -146,6 +206,7 @@ final class MPVPlaybackModel {
                 await self?.flush()
                 await player.stop()
                 self?.engine = nil; self?.recorder = nil
+                self?.progress.begin(nil)
                 self?.history.activeEpisodeID = nil
                 self?.svpStatus = "SVP: Off"
                 self?.status = "Player closed. The last sampled position was saved if storage was available."
@@ -159,4 +220,8 @@ enum ResumeStartError: Error, LocalizedError {
     var errorDescription: String? {
         "The saved position is outside this version of the episode. Choose Play from Beginning; the saved entry was kept."
     }
+}
+
+private extension Duration {
+    var secondsValue: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

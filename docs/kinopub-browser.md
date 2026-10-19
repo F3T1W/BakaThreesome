@@ -70,8 +70,8 @@ external audio is requested, both decoders must be present before success. This 
 not prove sustained playback, decoding quality or SVP interpolation.
 
 The app pauses neither cross-origin web players nor their frames automatically.
-Pause the web player manually after starting mpv if both play audio. Playback
-progress is not yet written to Shikimori.
+Pause the web player manually after starting mpv if both play audio. Automatic
+Shikimori progress is opt-in; see [Automatic progress](automatic-progress.md).
 
 ## Verification
 
@@ -95,7 +95,7 @@ progress is not yet written to Shikimori.
   and User-Agent. All three are now derived from the browser context. Isolating
   whether Origin alone is required was not part of this check.
 - The live mpv logs still showed intermittent CDN TLS timeouts and an audio
-  underrun. The existing http_persistent=0,http_multiple=0 settings are retained;
+  underrun. The original http_persistent=0,http_multiple=0 settings remain the compatibility baseline;
   a short successful check does not prove long-session stability or SVP.
 - A real mpv test pairs generated Y4M video with separate WAV audio, including
   colon, comma and percent characters in its path. Using the literal append option avoids splitting a URL or path at reserved
@@ -122,3 +122,7 @@ Watching reopens that episode and gets a current manifest; a website gesture may
 still be required. Diagnostic sources and unlinked pages do not record episode
 progress. See [Continue Watching](continue-watching.md) for persistence, cancellation
 and verification details.
+
+The player now opens its window during loading, reuses prepared capabilities and
+tries a faster HLS profile with one compatibility fallback. See
+[Startup latency](playback.md#startup-latency) for timing, behavior and tests.

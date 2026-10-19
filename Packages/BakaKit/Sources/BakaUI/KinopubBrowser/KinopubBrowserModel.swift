@@ -241,17 +241,18 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
 
     private func play(_ candidate: BrowserMediaCandidate, context: EpisodeContext?, seconds: Double) {
         guard operation == nil else { return }
+        let requested = ContinuousClock.now
         let audioURL = candidates.first(where: { $0.id == audioSourceID })?.url
         status = "Preparing mpv playback…"
         run {
-            self.webView.evaluateJavaScript("document.querySelectorAll('video,audio').forEach(media => media.pause())",
-                                            in: nil, in: .defaultClient) { _ in }
-            let userAgent = try await self.webView.evaluateJavaScript("navigator.userAgent") as? String
+            let userAgent = try await self.webView.evaluateJavaScript(
+                "(() => { document.querySelectorAll('video,audio').forEach(media => media.pause()); return navigator.userAgent; })()"
+            ) as? String
             try Task.checkCancellation()
             let source = try PlaybackSource(url: candidate.url, referrer: candidate.referrerOrigin,
                                             userAgent: userAgent, audioURL: audioURL, origin: candidate.referrerOrigin,
                                             startSeconds: seconds)
-            try await self.playback.start(source: source, episode: context)
+            try await self.playback.start(source: source, episode: context, requestedAt: requested)
             self.status = context == nil ? "Playback is not linked to an episode." : "Local episode progress is saved automatically."
         }
     }

@@ -13,12 +13,23 @@ static BridgeRequest Request(string method, object parameters) => new(1, "test",
     JsonSerializer.SerializeToElement(parameters));
 
 var calls = 0;
+var posterFailure = false;
 using var handler = new StubHandler(async request =>
 {
     Check(request.RequestUri!.Host == "shikimori.io", "Canonical host");
     Check(request.Headers.UserAgent.ToString() == "BakaThreesome", "Application user agent");
     calls++;
     var path = request.RequestUri.AbsolutePath;
+    if (path == "/api/graphql")
+    {
+        Check(request.Method == HttpMethod.Post, "GraphQL POST");
+        Check(request.Headers.Authorization == null, "Public posters do not need account tokens");
+        using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        Check(body.RootElement.GetProperty("variables").GetProperty("ids").GetString() == "1,2,3", "Batched distinct poster IDs");
+        Check(body.RootElement.GetProperty("query").GetString()!.Contains("main2xUrl"), "Retina poster derivative");
+        return (HttpStatusCode.OK, posterFailure ? """{"errors":[{"message":"synthetic error"}]}""" :
+            """{"data":{"animes":[{"id":"1","poster":{"main2xUrl":"https://shikimori.io/uploads/poster/animes/1/main.webp"}},{"id":"2","poster":null},{"id":"3","poster":{"main2xUrl":"http://unsafe.example/poster.jpg"}}]}}""");
+    }
     if (path == "/api/animes")
     {
         Check(request.Method == HttpMethod.Get && request.Content == null, "GET must not have a body");
@@ -35,6 +46,16 @@ using var handler = new StubHandler(async request =>
         Check(request.RequestUri.Query.Contains("status=on_hold"), "List filter query");
         Check(request.Headers.Authorization?.Parameter == "test-access", "Bearer header");
         return (HttpStatusCode.OK, """[{"id":7000000000,"status":"on_hold","episodes":3,"score":8,"anime":{"id":1,"name":"Example","episodes":12,"kind":"tv"}}]""");
+    }
+    if (path == "/api/v2/user_rates/7000000001")
+    {
+        Check(request.Method == HttpMethod.Put, "Progress is an absolute update");
+        Check(request.Headers.Authorization?.Parameter == "test-access", "Progress bearer header");
+        using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        var rate = body.RootElement.GetProperty("user_rate");
+        Check(rate.EnumerateObject().Count() == 1 && rate.GetProperty("episodes").GetInt32() == 4,
+            "Progress never writes a rating, status or other user fields");
+        return (HttpStatusCode.OK, """{"id":7000000001,"status":"watching","episodes":4,"score":8,"target_id":1}""");
     }
     if (path == "/api/v2/user_rates" || path == "/api/v2/user_rates/7000000000")
     {
@@ -58,6 +79,24 @@ using var handler = new StubHandler(async request =>
 });
 using var http = new HttpClient(handler);
 var adapter = new ShikimoriAdapter(http);
+var posters = (AnimePoster[])await adapter.Execute(Request("catalog.posters", new { animeIDs = new long[] { 1, 2, 3, 1 } }));
+Check(posters.Length == 3 && posters[0].ImageURL!.StartsWith("https://"), "Poster URL normalization");
+Check(posters[1].ImageURL == null && posters[2].ImageURL == null, "Missing and insecure artwork fallback");
+posterFailure = true;
+try
+{
+    await adapter.Execute(Request("catalog.posters", new { animeIDs = new long[] { 1, 2, 3 } }));
+    throw new InvalidOperationException("GraphQL errors must not be treated as missing artwork");
+}
+catch (InvalidDataException) { }
+var posterCalls = calls;
+try
+{
+    await adapter.Execute(Request("catalog.posters", new { animeIDs = new long[] { 0 } }));
+    throw new InvalidOperationException("Invalid poster IDs must be rejected");
+}
+catch (ArgumentException) { }
+Check(calls == posterCalls, "Poster validation happens before HTTP");
 var search = (AnimeSummary[])await adapter.Execute(Request("catalog.search", new { query = "A & B/+?", page = 2 }));
 Check(search is [{ Id: 1, Episodes: 12, CommunityScore: 8.25 }], "Normalized catalog");
 var details = (AnimeDetails)await adapter.Execute(Request("anime.details", new { animeID = 1 }));
@@ -71,6 +110,9 @@ foreach (long? id in new long?[] { null, 7000000000 })
     { userID = 42, animeID = 1, rateID = id, status = "on_hold", episodes = 3, score = 8, accessToken = "test-access" }));
     Check(rate.Id == 7000000000 && rate.AnimeID == 1, "Object write response");
 }
+var progressRate = (UserRateSummary)await adapter.Execute(Request("watchlist.progress", new
+{ animeID = 1, rateID = 7000000001, episodes = 4, accessToken = "test-access" }));
+Check(progressRate.Episodes == 4 && progressRate.Score == 8, "Progress-only response");
 var tokens = (TokenPair)await adapter.Execute(Request("account.exchange", new
 { clientID = "test-client", clientSecret = "test-secret", code = "test-code" }));
 Check(tokens.RefreshToken == "new-refresh" && tokens.ExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeSeconds(), "Normalized token lifetime");

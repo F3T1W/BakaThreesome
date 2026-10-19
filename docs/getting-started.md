@@ -87,7 +87,10 @@ Continue reopens the exact episode and retrieves its current stream. A website
 user gesture may still be required before mpv can resume. Play from Beginning
 starts over. See [Episodes and Continue Watching](continue-watching.md).
 
-Automatic episode offsets and Shikimori progress updates remain future work.
+To sync watched counts, enable Settings > Progress, keep the title in Watching,
+and confirm its Shikimori episode number in the Kinopub panel. Watch at least 90%
+in one player session. Pending updates and Retry Now are available in Settings.
+See [Automatic progress](automatic-progress.md) for numbering, retries and limits.
 
 See [Shikimori details](shikimori-integration.md) and
 [Kinopub browser details](kinopub-browser.md) for implementation and verification.

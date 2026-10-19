@@ -7,18 +7,29 @@ import Playback
 public final class ApplicationServices {
     let diagnostics = DiagnosticsModel()
     let shikimori = ShikimoriModel()
+    let artwork: AnimeArtworkModel
+    let progress: ProgressSyncModel
     let history: ResumeLibraryModel
+    let playback: MPVPlaybackModel
     let kinopubBrowser: KinopubBrowserModel
     let episodeMappings = EpisodeMappingStore()
 
     public init() {
+        artwork = AnimeArtworkModel(client: shikimori.client)
         let history = ResumeLibraryModel()
         self.history = history
-        kinopubBrowser = KinopubBrowserModel(history: history, playback: MPVPlaybackModel(history: history))
+        let progress = ProgressSyncModel(shikimori: shikimori)
+        self.progress = progress
+        let playback = MPVPlaybackModel(history: history, progress: progress)
+        self.playback = playback
+        kinopubBrowser = KinopubBrowserModel(history: history, playback: playback)
     }
 
     public func shutdown() async {
         await kinopubBrowser.shutdown()
+        await playback.shutdown()
+        await progress.shutdown()
+        await artwork.shutdown()
         await shikimori.shutdown()
         await diagnostics.shutdown()
     }

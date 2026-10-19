@@ -3,6 +3,7 @@ import WebKit
 
 struct KinopubBrowserView: View {
     @Bindable var model: KinopubBrowserModel
+    let progress: ProgressSyncModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -51,6 +52,12 @@ struct KinopubBrowserView: View {
                 } else {
                     Text("Open this title from Watchlist or Catalog and select its linked season to save episode progress.")
                         .font(.caption).foregroundStyle(.secondary)
+                }
+                if progress.isEnabled, progress.shikimori.snapshot.profile != nil, let episode = model.currentEpisode {
+                    EpisodeNumberingView(model: progress, context: episode).id(episode.id)
+                }
+                if progress.isEnabled, let message = progress.message {
+                    Text(message).font(.caption).foregroundStyle(.secondary)
                 }
                 if !model.playerStatus.isEmpty { Text(model.playerStatus).font(.caption).foregroundStyle(.secondary) }
                 if let error = model.progressError {

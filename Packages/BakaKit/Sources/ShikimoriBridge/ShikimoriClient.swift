@@ -38,6 +38,18 @@ public struct ShikimoriClient: Sendable {
     private let transport: any BridgeTransport
     public init(transport: any BridgeTransport = BridgeProcessTransport()) { self.transport = transport }
 
+    public func posters(_ animeIDs: [Int64]) async throws -> [AnimePoster] {
+        guard !animeIDs.isEmpty, animeIDs.count <= 50, animeIDs.allSatisfy({ $0 > 0 }) else {
+            throw ShikimoriError.invalidValues
+        }
+        let values: [AnimePoster] = try await request("catalog.posters", ["animeIDs": .numbers(animeIDs)])
+        let expected = Set(animeIDs)
+        guard Set(values.map(\.animeID)) == expected, values.count == expected.count else {
+            throw ShikimoriError.invalidResponse
+        }
+        return values
+    }
+
     public func search(_ query: String, page: Int) async throws -> [AnimeSummary] {
         try await call("catalog.search", ["query": query, "page": String(page)])
     }
@@ -80,12 +92,27 @@ public struct ShikimoriClient: Sendable {
         ])
     }
 
+    public func advanceProgress(_ episode: WatchedEpisode, token: String) async throws -> ProgressDecision {
+        guard episode.isValid else { throw ShikimoriError.invalidValues }
+        let details = try await details(episode.context.animeID.rawValue, accessToken: token)
+        guard details.anime.id == episode.context.animeID.rawValue else { throw ShikimoriError.invalidResponse }
+        let decision = EpisodeProgressPolicy.decision(number: episode.number, current: details.rate?.episodes,
+                                                     total: details.anime.episodes, status: details.rate?.status)
+        guard decision == .advance, let rate = details.rate else { return decision }
+        let updated: AnimeUserRate = try await call("watchlist.progress", [
+            "animeID": String(episode.context.animeID.rawValue), "rateID": String(rate.id),
+            "episodes": String(episode.number), "accessToken": token
+        ])
+        guard updated.id == rate.id, updated.animeID == episode.context.animeID.rawValue,
+              updated.episodes >= episode.number else { throw ShikimoriError.invalidResponse }
+        return .advance
+    }
+
     public func shutdown() async { await transport.shutdown() }
 
     private func call<Result: Decodable & Sendable>(
         _ method: String, _ values: [String: String?]
     ) async throws -> Result {
-        let id = UUID().uuidString
         let numbers: Set<String> = ["page", "animeID", "rateID", "userID", "episodes", "score"]
         var parameters: [String: WireValue] = [:]
         for (key, value) in values {
@@ -93,8 +120,15 @@ public struct ShikimoriClient: Sendable {
             if numbers.contains(key), let number = Int64(value) { parameters[key] = .number(number) }
             else { parameters[key] = .string(value) }
         }
+        return try await request(method, parameters)
+    }
+
+    private func request<Result: Decodable & Sendable>(
+        _ method: String, _ parameters: [String: WireValue]
+    ) async throws -> Result {
+        let id = UUID().uuidString
         let request = WireRequest(version: 1, id: id, method: method, parameters: parameters)
-        let cancelSafe = !["account.exchange", "account.refresh", "watchlist.save"].contains(method)
+        let cancelSafe = !["account.exchange", "account.refresh", "watchlist.save", "watchlist.progress"].contains(method)
         let data = try await transport.exchange(JSONEncoder().encode(request), cancelSafe: cancelSafe)
         let response: WireResponse<Result>
         do { response = try JSONDecoder().decode(WireResponse<Result>.self, from: data) }
@@ -116,12 +150,13 @@ public struct ShikimoriClient: Sendable {
 }
 
 private enum WireValue: Encodable {
-    case string(String), number(Int64)
+    case string(String), number(Int64), numbers([Int64])
     func encode(to encoder: Encoder) throws {
         var container = encoder.singleValueContainer()
         switch self {
         case .string(let value): try container.encode(value)
         case .number(let value): try container.encode(value)
+        case .numbers(let values): try container.encode(values)
         }
     }
 }

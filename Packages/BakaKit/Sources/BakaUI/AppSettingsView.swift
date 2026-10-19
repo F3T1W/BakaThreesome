@@ -13,6 +13,10 @@ public struct AppSettingsView: View {
                 AccountsView(shikimori: services.shikimori)
             }
 
+            Tab("Progress", systemImage: "checkmark.circle") {
+                ProgressSettingsView(model: services.progress)
+            }
+
             Tab("About", systemImage: "info.circle") {
                 VStack(spacing: 16) {
                     Text("BakaThreesome")

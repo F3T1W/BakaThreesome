@@ -25,6 +25,8 @@ import Testing
     let second = try SVPSocketRegistration(directory: discovery)
     let socket = root.url.appendingPathComponent("mpv.sock")
     try first.publish(socket: socket, processID: 123)
+    try first.publish(socket: socket, processID: 123)
+    #expect(throws: PlaybackError.svpRegistrationFailed) { try first.publish(socket: socket, processID: 789) }
     #expect(throws: PlaybackError.svpRegistrationFailed) { try second.publish(socket: socket, processID: 123) }
     try second.publish(socket: socket, processID: 456)
     first.remove()

@@ -37,7 +37,7 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         }
         let socket = directory.url.appendingPathComponent("mpv.sock")
         var arguments = [
-            "--no-config", "--idle=yes", "--force-window=no", "--terminal=no",
+            "--no-config", "--idle=yes", "--force-window=\(headless ? "no" : "immediate")", "--terminal=no",
             "--input-terminal=no", "--keep-open=yes", "--no-resume-playback", "--hwdec=auto-copy",
             "--hwdec-codecs=all", "--hr-seek-framedrop=no", "--network-timeout=15",
             "--demuxer-lavf-o=http_persistent=0,http_multiple=0",
@@ -92,11 +92,8 @@ public actor MPVPlaybackEngine: PlaybackEngine {
             .string("loadfile"), .string(location), .string("replace"), .number(-1), .object(source.mpvOptions)
         ], awaitFileLoaded: true)
         try ensureCurrent(owned.id)
-        if let registration = owned.registration, try await optionalString("video-codec") != nil {
-            let processID = await owned.process.identifier
-            try ensureCurrent(owned.id)
-            try Task.checkCancellation()
-            try registration.publish(socket: owned.directory.url.appendingPathComponent("mpv.sock"), processID: processID)
+        if owned.registration != nil, try await optionalString("video-codec") != nil {
+            try await advertiseVideo(owned)
         }
     }
 
@@ -117,6 +114,10 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let duration = try await optionalNumber("duration")
         let videoCodec = try await optionalString("video-codec")
         let audioCodec = try await optionalString("audio-codec")
+        let speed = try await optionalNumber("speed")
+        let seeking: MPVValue
+        do { seeking = try await command([.string("get_property"), .string("seeking")]) }
+        catch PlaybackError.propertyUnavailable { seeking = .bool(true) }
         let eof: MPVValue
         do { eof = try await command([.string("get_property"), .string("eof-reached")]) }
         catch PlaybackError.propertyUnavailable { eof = .bool(false) }
@@ -124,10 +125,12 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         guard case .bool(let isPaused) = pause, case .bool(let isIdle) = idle else {
             throw PlaybackError.invalidResponse
         }
+        if videoCodec != nil, !isIdle { try await advertiseVideo(current) }
         return PlaybackSnapshot(
             isPaused: isPaused, isIdle: isIdle,
             position: PlaybackPosition(seconds: seconds ?? 0, duration: duration),
-            videoCodec: videoCodec, audioCodec: audioCodec, hasEnded: eof == .bool(true)
+            videoCodec: videoCodec, audioCodec: audioCodec, hasEnded: eof == .bool(true),
+            speed: speed ?? 0, isSeeking: seeking != .bool(false)
         )
     }
 
@@ -157,6 +160,14 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         await task.value
         session = nil
         stopTask = nil
+    }
+
+    private func advertiseVideo(_ current: Session) async throws {
+        guard let registration = current.registration else { return }
+        let processID = await current.process.identifier
+        try ensureCurrent(current.id)
+        try Task.checkCancellation()
+        try registration.publish(socket: current.directory.url.appendingPathComponent("mpv.sock"), processID: processID)
     }
 
     private func command(_ arguments: [MPVValue]) async throws -> MPVValue {

@@ -56,8 +56,8 @@ Resume time is a per-file mpv start option delivered over private JSON IPC. It
 cannot carry over to another file. keep-open preserves EOF information long enough
 for polling; EOF removes the local continuation entry. This is a local navigation
 state, not proof of watched content. Seeking to the end can also reach EOF.
-There are no automatic writes to Shikimori. Progress synchronization remains a
-separate feature requiring watched-time and conflict policies.
+Automatic Shikimori updates use separate watched-coverage and delivery policies;
+local EOF handling alone never triggers them.
 
 ## Verification
 
@@ -83,3 +83,6 @@ The test player was paused and stopped after verification. Long-session stabilit
 crash-recovery scenarios remain unverified.
 
 Reference: [mpv playback control and EOF properties](https://mpv.io/manual/stable/).
+
+Optional watched-count synchronization is independent of resume positions. See
+[Automatic Shikimori progress](automatic-progress.md) for explicit numbering and delivery.

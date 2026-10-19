@@ -24,7 +24,14 @@ final class SVPSocketRegistration: Sendable {
 
     func publish(socket: URL, processID: Int32) throws {
         try published.withLock { current in
-            guard current == nil, processID > 0 else { throw PlaybackError.svpRegistrationFailed }
+            guard processID > 0 else { throw PlaybackError.svpRegistrationFailed }
+            if let owned = current {
+                guard owned.socket == socket, owned.link.lastPathComponent == String(processID),
+                      (try? FileManager.default.destinationOfSymbolicLink(atPath: owned.link.path)) == socket.path else {
+                    throw PlaybackError.svpRegistrationFailed
+                }
+                return
+            }
             // SVP recognizes numeric filenames. Never overwrite an existing registration.
             let link = directory.appendingPathComponent(String(processID))
             do {

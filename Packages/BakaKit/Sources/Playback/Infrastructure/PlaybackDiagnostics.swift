@@ -35,8 +35,9 @@ public struct MPVCapabilityProbe: Sendable {
         guard FileManager.default.isExecutableFile(atPath: executable.path) else {
             throw PlaybackError.playerNotFound
         }
-        let versionOutput = try await output(for: ["--no-config", "--version"])
-        let filters = try await output(for: ["--no-config", "--vf=help"])
+        async let versionRequest = output(for: ["--no-config", "--version"])
+        async let filterRequest = output(for: ["--no-config", "--vf=help"])
+        let (versionOutput, filters) = try await (versionRequest, filterRequest)
         guard let firstLine = versionOutput.split(separator: "\n").first,
               firstLine.hasPrefix("mpv ") else { throw PlaybackError.probeFailed }
         let version = firstLine.split(separator: " ").prefix(2).joined(separator: " ")

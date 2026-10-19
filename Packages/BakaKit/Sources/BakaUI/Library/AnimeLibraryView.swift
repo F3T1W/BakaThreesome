@@ -6,6 +6,7 @@ import Tracking
 
 struct AnimeLibraryView: View {
     let model: ShikimoriModel
+    let artwork: AnimeArtworkModel
     let isWatchlist: Bool
     let onOpenKinopub: (AnimeSummary, Bool) -> Void
     @State private var query = ""
@@ -22,6 +23,7 @@ struct AnimeLibraryView: View {
     private var requestKey: String {
         "\(isWatchlist)-\(model.snapshot.isSignedIn)-\(submittedQuery)-\(status?.rawValue ?? "all")-\(page)-\(model.revision)-\(reload)"
     }
+    private var animeIDs: [Int64] { isWatchlist ? entries.map { $0.anime.id } : results.map(\.id) }
     private var count: Int { isWatchlist ? entries.count : results.count }
 
     var body: some View {
@@ -70,21 +72,21 @@ struct AnimeLibraryView: View {
                                        systemImage: isWatchlist ? "bookmark" : "magnifyingglass",
                                        description: Text(isWatchlist ? "Find anime in Catalog and add it to your list." : "Try a different title."))
             } else {
-                List {
+                AnimeGrid {
                     if isWatchlist {
                         ForEach(entries) { entry in
-                            animeRow(entry.anime, rate: entry.rate)
+                            animeCard(entry.anime, rate: entry.rate)
                         }
                     } else {
-                        ForEach(results) { anime in animeRow(anime, rate: nil) }
+                        ForEach(results) { anime in animeCard(anime, rate: nil) }
                     }
                 }
-                .listStyle(.inset)
                 .disabled(isLoading)
                 .overlay(alignment: .topTrailing) {
                     if isLoading { ProgressView().controlSize(.small).padding() }
                 }
             }
+            ArtworkNotice(artwork: artwork, animeIDs: animeIDs)
             if !isWatchlist || model.snapshot.isSignedIn {
                 Divider()
                 HStack {
@@ -100,6 +102,7 @@ struct AnimeLibraryView: View {
             }
         }
         .task(id: requestKey) { await load() }
+        .task(id: animeIDs) { await artwork.load(animeIDs) }
         .onChange(of: status) { page = 1 }
         .onChange(of: model.revision) { page = 1 }
         .sheet(item: $selectedAnime) { anime in
@@ -107,41 +110,37 @@ struct AnimeLibraryView: View {
         }
     }
 
-    private func animeRow(_ anime: AnimeSummary, rate: AnimeUserRate?) -> some View {
-        HStack(spacing: 12) {
+    private func animeCard(_ anime: AnimeSummary, rate: AnimeUserRate?) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
             Button { selectedAnime = anime } label: {
-                HStack(spacing: 16) {
-                    Image(systemName: "tv").font(.title2).foregroundStyle(.secondary)
-                        .frame(width: 36)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(anime.title).font(.headline)
-                        HStack {
-                            Text(anime.kind.uppercased())
-                            Text(anime.episodes > 0 ? "\(anime.episodes) episodes" : "Episode count unknown")
-                            if let score = anime.communityScore {
-                                Text("★ \(score, specifier: "%.2f")")
-                            }
-                        }
-                        .font(.caption).foregroundStyle(.secondary)
+                AnimeThumbnail(animeID: anime.id, title: anime.title, artwork: artwork) {
+                    HStack(spacing: 6) {
+                        Text(anime.kind.uppercased())
+                        Text(anime.episodes > 0 ? "· \(anime.episodes) episodes" : "· Episode count unknown")
                     }
-                    Spacer()
-                    if let rate {
-                        VStack(alignment: .trailing, spacing: 5) {
-                            Text(rate.status.title)
-                            Text("\(rate.episodes) watched · \(rate.score == 0 ? "Unrated" : "\(rate.score)/10")")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-                    }
-                    Image(systemName: "chevron.right").foregroundStyle(.tertiary)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
                 }
-                .padding(.vertical, 6).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            Button("Open in Kinopub", systemImage: "arrow.up.right") { onOpenKinopub(anime, true) }
-                .labelStyle(.iconOnly).buttonStyle(.glass)
-                .help("Find this anime on Kinopub")
+            .accessibilityLabel("Show details for \(anime.title)")
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    if let rate {
+                        Text("\(rate.status.title) · \(rate.episodes) watched")
+                        Text(rate.score == 0 ? "Unrated" : "Your rating: \(rate.score)/10")
+                    } else if let score = anime.communityScore {
+                        Label(String(format: "%.2f", score), systemImage: "star.fill")
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 4)
+                Button("Open in Kinopub", systemImage: "play.fill") { onOpenKinopub(anime, true) }
+                    .labelStyle(.iconOnly).buttonStyle(.glass)
+                    .help("Find \(anime.title) on Kinopub")
+            }
         }
         .contextMenu {
+            Button("Details and Progress") { selectedAnime = anime }
             Button("Open in Kinopub") { onOpenKinopub(anime, true) }
             Button("Change Kinopub Match") { onOpenKinopub(anime, false) }
         }

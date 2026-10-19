@@ -5,7 +5,7 @@ A native macOS anime streaming app integrating Shikimori, Kinopub, and SVP
 The interface uses SwiftUI, with AppKit where window management or system
 integration requires it. An external mpv process is controlled through JSON IPC.
 Shikimori catalog and manual tracking are connected; Kinopub stream retrieval,
-episode matching, and automatic playback synchronization are still in progress.
+automatic episode-number inference and sustained playback validation remain in progress.
 
 ## Acknowledgments
 
@@ -96,6 +96,16 @@ an episode using the native picker, play its primary stream in mpv, then use
 Continue Watching after stopping or restarting the app. Continue reopens the
 same episode and retrieves its current stream before restoring position. A web
 player gesture may be needed by the website. Play from Beginning is also available.
-Shikimori watched counts remain manual.
+Automatic watched counts are available as an opt-in feature in Settings > Progress;
+confirm episode numbering in Kinopub first. Ratings and list statuses remain manual.
+
+[Automatic progress, pending updates and limitations](docs/automatic-progress.md).
 
 [Episode identity, persistence and checks](docs/continue-watching.md).
+
+## Anime artwork
+
+Catalog, Watchlist and Continue Watching display adaptive poster grids with titles
+below the artwork. Poster metadata is fetched in batches through ShikimoriSharp
+and GraphQL; images share a cache, and missing artwork uses a placeholder.
+Details, Kinopub matching and resume actions remain on the cards and context menus.

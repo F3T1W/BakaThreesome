@@ -44,17 +44,17 @@ public struct LibraryView: View {
             Group {
                 switch selection ?? .resume {
                 case .resume:
-                    ContinueWatchingView(model: services.history,
+                    ContinueWatchingView(model: services.history, artwork: services.artwork,
                                          isPreparingPlayback: services.kinopubBrowser.isWorking || services.kinopubBrowser.isPreparing) { entry, fromBeginning in
                         services.kinopubBrowser.resume(entry, fromBeginning: fromBeginning)
                         selection = .kinopub
                     }
                 case .watchlist:
-                    AnimeLibraryView(model: services.shikimori, isWatchlist: true, onOpenKinopub: findKinopub).id(LibrarySection.watchlist)
+                    AnimeLibraryView(model: services.shikimori, artwork: services.artwork, isWatchlist: true, onOpenKinopub: findKinopub).id(LibrarySection.watchlist)
                 case .catalog:
-                    AnimeLibraryView(model: services.shikimori, isWatchlist: false, onOpenKinopub: findKinopub).id(LibrarySection.catalog)
+                    AnimeLibraryView(model: services.shikimori, artwork: services.artwork, isWatchlist: false, onOpenKinopub: findKinopub).id(LibrarySection.catalog)
                 case .kinopub:
-                    KinopubBrowserView(model: services.kinopubBrowser)
+                    KinopubBrowserView(model: services.kinopubBrowser, progress: services.progress)
                 case .diagnostics:
                     DiagnosticsView(model: services.diagnostics)
                 }
@@ -69,7 +69,8 @@ public struct LibraryView: View {
             }
         }
         .frame(minWidth: 780, minHeight: 520)
-        .task { await services.history.refresh(); await services.shikimori.restore() }
+        .task { services.playback.warmUp(); await services.history.refresh(); await services.shikimori.restore(); await services.progress.start() }
+        .onChange(of: services.shikimori.revision) { services.progress.retry() }
         .sheet(item: $matchingAnime) { anime in
             KinopubMatchSheet(anime: anime, client: services.shikimori.client, store: services.episodeMappings,
                               origin: services.kinopubBrowser.websiteOrigin, useSaved: useSavedMatch) { mapping in

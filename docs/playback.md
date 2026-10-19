@@ -28,8 +28,10 @@
 
 The process uses `--no-config`, `--hwdec=auto-copy`, `--hr-seek-framedrop=no`,
 `--no-resume-playback`, and a 15-second network timeout. The HLS options
-`http_persistent=0,http_multiple=0` preserve the user's earlier working setup.
-Their effect is empirical; these changes do not establish a CDN root cause.
+`http_persistent=0,http_multiple=0` remain the compatibility baseline. HTTP(S)
+`.m3u8` sources first use per-file `http_persistent=1,http_multiple=1` and
+`demuxer-lavf-probe-info=nostreams`. Other formats retain full probing.
+See [Startup latency](#startup-latency) for fallback and validation.
 No fixed User-Agent, Origin, Referer, signed stream URL, or token is embedded.
 
 ## Verification
@@ -60,7 +62,7 @@ IPC media control, not video rendering or SVP.
 - Experimental browser media discovery and per-file User-Agent/Referer are now
   available; see [Kinopub browser](kinopub-browser.md). One live Kinopub episode has been verified with video and audio; cookie transfer
   is not implemented. Long-session stability remains unverified. No integrated native video UI,
-  track selection, automatic stream recovery, or Shikimori updates. Local linked-episode
+  track selection or automatic stream recovery. Opt-in Shikimori updates and local linked-episode
   position persistence is implemented; see [Continue Watching](continue-watching.md).
   Kinopub website sign-in and playback are described in
   [Kinopub browser](kinopub-browser.md).
@@ -89,7 +91,8 @@ Intermittent CDN TLS timeouts were observed; long-session stability is unverifie
 
 The Kinopub SVP switch is enabled by default and saved locally. It applies to the
 next playback session. The app checks for SVP Manager and mpv VapourSynth support,
-starts Manager without activating it, and after file-loaded confirms video, advertises
+starts Manager without activating it if it is not already running, and once
+file-loaded or a subsequent snapshot confirms video, advertises
 its private IPC socket as
 `/tmp/mpvSockets/<child-pid>`. SVP follows this symlink using its supported
 mpvSockets discovery convention. The directory must be owned by the current user,
@@ -127,3 +130,54 @@ ownership/collisions and distinguish disabled, connected and processing filters.
 
 References: [SVP's mpvSockets recommendation](https://www.svp-team.com/wiki/SVP:mpv)
 and [mpvSockets discovery naming](https://github.com/wis/mpvSockets).
+
+## Startup latency
+
+The app warms its capability cache in the background. Concurrent callers share a
+probe, successful results are keyed by resolved executable path, modification date
+and size, and replacement binaries trigger a new check. Version and filter-list
+probes run concurrently. Failures remain retryable and Quit cleans up probes.
+
+On Play, mpv starts while SVP preparation runs concurrently. An already running SVP
+Manager is reused. `force-window=immediate` creates the player window during media
+opening instead of hiding it until demuxing completes. Headless checks still use
+`force-window=no`. Browser pause and User-Agent lookup share one WebKit evaluation.
+The status distinguishes process startup from media readiness and includes elapsed
+time. Numeric phase timings use the `PlaybackStartup` log category, without URLs,
+headers or credentials. The process/IPC timing starts at the playback action and includes WebKit source
+preparation and cleanup of a previous player;
+media timing includes any remaining SVP preparation. It is not a first-frame metric.
+
+Network HLS sources try reduced stream-info probing plus persistent/parallel HTTP
+connections. This retains the original master manifest and its track choices.
+One compatibility reload restores full probing and the old HTTP settings after
+a load rejection or two seconds without the expected decoder metadata.
+For linked episodes, fast mode waits for both video and audio before reporting
+success. Compatibility mode retains the existing video-only warning behavior.
+The reload preserves resume offset, Origin, Referer, User-Agent and external audio.
+Cancellation stops the owned player, including while opening a stream.
+
+Run controlled HTTP HLS and installed-player checks with:
+
+```sh
+BAKA_HLS_INTEGRATION=1 BAKA_MPV_INTEGRATION=1 ./scripts/check.sh
+```
+
+The HLS fixture requires `/opt/homebrew/bin/ffmpeg`, Python 3 and installed mpv.
+It generates synthetic H.264/AAC media, serves a multi-variant VOD master on loopback
+with a small response delay, and verifies video, audio, resume and advancing playback
+in both probing modes. It prints timings without enforcing a fragile speed threshold.
+A local result is not a guarantee about Kinopub/CDN latency. The previous live path
+was observed at 47 seconds with no video/audio and a hidden window, then timed out.
+
+References: [mpv probing and window options](https://mpv.io/manual/stable/),
+[FFmpeg HLS connection options](https://ffmpeg.org/ffmpeg-formats.html#hls).
+
+On 2026-10-19, real SVP interpolation passed after 30 seconds of idle time with
+immediate windows. A live app trial reported process/IPC startup in 0.31 seconds;
+its window was available while the stream was loading. That timing preceded the
+addition of WebKit preparation to the reported interval. The same Kinopub stream
+still hit the media-open deadline with the final fast profile: end-to-end live
+video startup is not verified as improved. Controlled HLS readiness was about
+0.50 seconds in both profiles in one run, so no HLS speedup percentage is claimed.
+The test playback was stopped and no Shikimori data was changed.

@@ -12,16 +12,28 @@ The adapted source, original MIT license, source commit and patch list are in
 - Opening a title loads its current user rate before enabling edits.
 - Add a title, set an absolute watched episode count, change status, and rate 1–10.
   Unrated sets the score to 0. A successful save refreshes the watchlist.
-- Statuses and scores change only after an explicit Save. No automatic completion,
-  playback-to-Shikimori synchronization, offline queue, conflict merge, or custom named playlists yet.
-- Continue Watching stores local linked-episode positions; it does not duplicate Watching
-  or update Shikimori watched counts.
+- Statuses and scores change only after an explicit Save. Automatic watched counts
+  are opt-in, use confirmed episode numbering and a persistent account-bound outbox.
+  Progress-only updates preserve ratings and statuses; automatic completion, remote
+  version conflict resolution and custom named playlists are not implemented.
+- Continue Watching stores local linked-episode positions independently of watched counts.
+  See [Automatic progress](automatic-progress.md) for threshold, retry and gap handling.
 
 These lists are Shikimori status lists, not Kinopub playlists or collections.
 The REST endpoints used here are supported but documented as deprecated by
-Shikimori. GraphQL is the next catalog adapter option, especially for posters:
-new poster uploads are available only through GraphQL. Posters are not requested
-by this version.
+Shikimori. Poster metadata uses public GraphQL through the same ShikimoriSharp
+transport and rate limits. Requests batch up to 50 distinct IDs and select the
+`main2xUrl` derivative; account tokens are not needed for artwork.
+
+Catalog, Watchlist and Continue Watching share a responsive native thumbnail grid.
+Each card shows the poster with its title underneath; details/progress, Kinopub
+matching and continuation actions remain available. Missing or unavailable artwork
+uses a fixed-size placeholder without blocking the title list. A poster metadata
+error offers Reload Posters. Metadata and decoded images are shared between views;
+HTTP responses also use a dedicated URL cache. No credentials or browser cookies
+are attached to image requests.
+
+The poster field is described in the [Shikimori GraphQL schema](https://github.com/shikimori/shikimori/blob/master/app/graphql/types/poster_type.rb).
 
 ## Local sign-in
 

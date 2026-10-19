@@ -5,7 +5,7 @@ import Tracking
 
 @MainActor
 @Observable
-final class ShikimoriModel {
+final class ShikimoriModel: EpisodeProgressClient {
     let client: ShikimoriClient
     private let account: ShikimoriAccountService
     private(set) var snapshot = ShikimoriAccountSnapshot.signedOut
@@ -17,6 +17,7 @@ final class ShikimoriModel {
     var clientSecret = ""
     var authorizationCode = ""
     private var operation: Task<Void, Never>?
+    private var progressTask: Task<ProgressDecision, Error>?
     private var saveTask: Task<AnimeUserRate, Error>?
 
     init() {
@@ -100,9 +101,27 @@ final class ShikimoriModel {
         return result
     }
 
+    func advance(_ episode: WatchedEpisode) async throws -> ProgressDecision {
+        guard !isBusy, !isSaving else { throw ShikimoriError.invalidValues }
+        isSaving = true
+        let task = Task {
+            let profile = try await account.identity()
+            guard profile.id == episode.userID else { throw ShikimoriError.notSignedIn }
+            let token = try await account.accessToken()
+            return try await client.advanceProgress(episode, token: token)
+        }
+        progressTask = task
+        defer { progressTask = nil; isSaving = false }
+        let result = try await task.value
+        if result == .advance { revision += 1 }
+        snapshot = await account.snapshot()
+        return result
+    }
+
     func shutdown() async {
         await operation?.value
         _ = try? await saveTask?.value
+        _ = try? await progressTask?.value
         await account.finishPendingRefresh()
         await client.shutdown()
     }

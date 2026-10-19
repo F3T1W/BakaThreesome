@@ -62,8 +62,10 @@ The Kinopub catalog gateway is implemented for website search and item details.
 Introduce a stream gateway and further storage interfaces as their scenarios appear.
 SwiftData stores local episode playback history;
 confirmed title mappings currently use a small atomic JSON store. Keychain stores
-secrets. Synchronization must persist the intent to set absolute progress
-and explicitly resolve conflicts with remote changes.
+secrets. Tracking owns unique playback coverage, confirmed numbering, an atomic
+account-bound progress outbox and delivery policy. The Shikimori adapter reconciles
+absolute counts before a progress-only update; BakaUI owns opt-in settings and retries.
+See [Automatic progress](automatic-progress.md) for delivery and concurrency limits.
 
 PlaybackEngine and its external mpv adapter are now implemented. The application
 composition owns diagnostics, and an AppKit termination delegate waits for
@@ -83,9 +85,17 @@ Hardened runtime is configured, but Xcode disables it for ad-hoc signing.
 Developer ID signing, notarization, runtime distribution, and architecture
 verification are required before distribution. mpv and SVP are not bundled.
 
-Remaining work: automatic external alias lookup, sustained playback validation, episode-offset matching,
-and automatic tracking. Embedded libmpv requires a separate experiment.
+Remaining work: automatic external alias lookup, sustained playback validation, automatic episode-offset inference,
+and tracking across multiple playback sessions. Embedded libmpv requires a separate experiment.
 
 [Title matching, website search and saved destinations](title-matching.md).
 
 [Episode identity, resume persistence and Continue Watching](continue-watching.md).
+
+## Artwork presentation
+
+Catalog exposes an optional poster URL by anime ID. The bridge reads GraphQL poster
+metadata through the existing ShikimoriSharp transport in batches of at most 50.
+A shared BakaUI artwork model coalesces requests and owns metadata, decoded-image
+and HTTP caches. The same thumbnail and adaptive grid views serve Catalog, Watchlist
+and Continue Watching; artwork failure never blocks title data or playback.

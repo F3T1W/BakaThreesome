@@ -13,7 +13,7 @@ namespace BakaThreesome.ShikimoriBridge;
 public sealed class ShikimoriAdapter
 {
     public static readonly string[] Capabilities =
-    ["handshake", "catalog.search", "anime.details", "account.exchange", "account.refresh", "account.whoami", "watchlist.list", "watchlist.save"];
+    ["handshake", "catalog.posters", "catalog.search", "anime.details", "account.exchange", "account.refresh", "account.whoami", "watchlist.list", "watchlist.save", "watchlist.progress"];
 
     private readonly ShikimoriClient client;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -34,6 +34,8 @@ public sealed class ShikimoriAdapter
         switch (request.Method)
         {
             case "handshake": return new HandshakeResult("BakaThreesome.ShikimoriBridge", Capabilities);
+            case "catalog.posters":
+                return await new ShikimoriPosters(client).Load(p.AnimeIDs);
             case "catalog.search":
                 return (await client.Animes.GetAnime(new AnimeRequestSettings
                 {
@@ -82,6 +84,15 @@ public sealed class ShikimoriAdapter
                     new AnimeRateRequestSettings { limit = 50, page = Page(p.Page), status = status }, token))
                     .Where(entry => entry.Anime != null)
                     .Select(entry => new ListEntry(Summary(entry.Anime), Rate(entry, entry.Anime.Id))).ToArray();
+            case "watchlist.progress":
+                Required(token);
+                Positive(p.AnimeID);
+                if (p.RateID is not { } progressRateID) throw new ArgumentException();
+                Positive(progressRateID);
+                if (p.Episodes is < 1 or > 100000) throw new ArgumentException();
+                var progress = await client.UserRates.EditUserRate(progressRateID,
+                    new UserRateEditSettings(new UserRateBase { episodes = p.Episodes }), token);
+                return Rate(progress, p.AnimeID);
             case "watchlist.save":
                 Required(token);
                 Positive(p.UserID);
@@ -118,6 +129,7 @@ public sealed class ShikimoriAdapter
 
     private sealed class Parameters
     {
+        public long[]? AnimeIDs { get; init; }
         public string? Query { get; init; }
         public int Page { get; init; } = 1;
         public string? AccessToken { get; init; }
