@@ -21,6 +21,29 @@ public struct ResumeEntry: Codable, Identifiable, Sendable {
 
 public protocol ResumeHistoryStore: Sendable {
     func entries() async throws -> [ResumeEntry]
+    func snapshot() async throws -> ResumeHistorySnapshot
     func save(_ entry: ResumeEntry) async throws
     func remove(id: String) async throws
+}
+
+public struct ResumeHistorySnapshot: Sendable {
+    public let entries: [ResumeEntry]
+    public let continueEntries: [ResumeEntry]
+    public init(entries: [ResumeEntry], latestEpisodeIDs: [Int64: String] = [:]) {
+        self.entries = entries
+        var seen: Set<Int64> = []
+        continueEntries = entries.sorted {
+            $0.updatedAt == $1.updatedAt ? $0.id < $1.id : $0.updatedAt > $1.updatedAt
+        }.filter {
+            let animeID = $0.context.animeID.rawValue
+            if let latest = latestEpisodeIDs[animeID], latest != $0.id { return false }
+            return seen.insert(animeID).inserted
+        }
+    }
+}
+
+public extension ResumeHistoryStore {
+    func snapshot() async throws -> ResumeHistorySnapshot {
+        ResumeHistorySnapshot(entries: try await entries())
+    }
 }

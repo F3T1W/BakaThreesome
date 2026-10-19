@@ -307,3 +307,25 @@ cleared on stop, and delayed replies cannot update a later player session.
 The optional `TrackSwitchingIntegrationTests` generate a local MKV with Japanese
 and Russian audio plus English and Russian subtitles using Homebrew ffmpeg.
 They verify defaults, live switching, Off and unchanged playback position.
+
+## Optional opening skip
+
+When mpv exposes chapters, the app recognizes explicitly labelled OP, Opening,
+Opening credits or Intro chapters. The next chapter supplies the end boundary;
+unlabelled chapters, missing ends, invalid ordering and ranges outside 5–300
+seconds do not create a skip action. No assumed 90-second opening is used.
+The app reads mpv's documented `chapter-list` title/time metadata:
+[mpv chapter properties](https://mpv.io/manual/stable/#properties).
+
+For media with a recognized range, Show Skip Opening controls button visibility
+and is remembered locally. Skip Opening appears only while playback is inside
+that range and seeks to its known end after rechecking the live position. It never
+skips automatically. Skipping interrupts watched-coverage sampling before and
+after the seek, so the skipped interval is not counted toward Shikimori progress.
+Stop and a new player session invalidate pending actions and marker state.
+
+Many HLS sources expose no named chapters. In that case the controls stay hidden;
+there is no Kinopub marker extractor, external timing-service lookup or inferred
+opening duration. A generated local MKV with real chapters verifies discovery and
+seeking through the installed mpv; absence of markers on a real stream is not
+proof that the episode has no opening.

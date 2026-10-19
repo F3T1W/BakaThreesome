@@ -16,8 +16,10 @@ struct BrowserEpisodeChoice: Identifiable {
 @MainActor
 @Observable
 final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate {
+    let autoplay = EpisodeAutoplayModel()
     var useSVP: Bool { get { playback.useSVP } set { playback.useSVP = newValue } }
     var svpStatus: String { playback.svpStatus }
+    var opening: OpeningSkipModel { playback.opening }
     var tracks: PlaybackTrackModel { playback.tracks }
     var playerStatus: String { playback.status }
     var progressError: String? { playback.progressError }
@@ -50,6 +52,17 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     init(history: ResumeLibraryModel, playback: MPVPlaybackModel) {
         self.history = history; self.playback = playback
         super.init()
+        playback.onPlaybackStopped = { [weak self] in self?.autoplay.cancel() }
+        playback.onPlaybackSnapshot = { [weak self] snapshot, context, sessionID in
+            guard let self else { return }
+            self.autoplay.observe(snapshot, context: context, sessionID: sessionID, next: self.nextEpisode)
+        }
+        autoplay.onAdvance = { [weak self] source, destination in
+            guard let self, await self.playback.hasEnded(source), !Task.isCancelled,
+                  self.currentEpisode?.id == source.id,
+                  self.playback.activeEpisode?.id == source.id, self.nextEpisode?.id == destination.id else { return }
+            self.playAdjacentEpisode(.next)
+        }
         playback.onStreamFailure = { [weak self] context, seconds in
             guard let self, let target = self.playbackTarget, target.context == context,
                   self.currentEpisode?.id == context.id, self.websiteOrigin == target.origin else { return }
@@ -228,6 +241,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
         let url = navigationAction.request.url
+        if navigationAction.targetFrame?.isMainFrame == true { autoplay.cancel() }
         if navigationAction.targetFrame?.isMainFrame == false {
             return url?.scheme == "https" || url?.absoluteString == "about:blank" ? .allow : .cancel
         }
@@ -245,6 +259,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        autoplay.cancel()
         finishedURL = nil
         streamDiagnostic = nil
         candidates = []; episodeChoices = []
@@ -371,6 +386,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     }
 
     private func cancelPreparation() {
+        autoplay.cancel()
         preparationID = UUID()
         recoveryPoint = nil; playbackTarget = nil
         pendingResume = nil; preparing?.cancel(); preparing = nil; isPreparing = false
@@ -424,6 +440,9 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     }
 
     func shutdown() async {
+        autoplay.onAdvance = nil
+        playback.onPlaybackSnapshot = nil
+        playback.onPlaybackStopped = nil
         playback.onStreamFailure = nil
         cancelPreparation()
         operation?.cancel()

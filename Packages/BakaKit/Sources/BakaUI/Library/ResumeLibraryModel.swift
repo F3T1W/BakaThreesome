@@ -11,15 +11,22 @@ final class ResumeLibraryModel {
     var activeEpisodeID: String?
     private var revision = 0
 
+    private(set) var continueEntries: [ResumeEntry] = []
+
+    func canRemove(_ entry: ResumeEntry) -> Bool {
+        !entries.contains { $0.id == activeEpisodeID && $0.context.animeID == entry.context.animeID }
+    }
+
     init(store: any ResumeHistoryStore = SwiftDataResumeStore()) { self.store = store }
 
     func refresh() async {
         revision += 1
         let current = revision
         do {
-            let values = try await store.entries()
+            let values = try await store.snapshot()
             guard revision == current else { return }
-            entries = values
+            entries = values.entries
+            continueEntries = values.continueEntries
             errorMessage = nil
         } catch {
             guard revision == current else { return }
@@ -28,7 +35,7 @@ final class ResumeLibraryModel {
     }
 
     func remove(_ entry: ResumeEntry) async {
-        guard activeEpisodeID != entry.id else { return }
+        guard canRemove(entry) else { return }
         do { try await store.remove(id: entry.id); await refresh() }
         catch { errorMessage = "This saved episode could not be removed. Try again." }
     }

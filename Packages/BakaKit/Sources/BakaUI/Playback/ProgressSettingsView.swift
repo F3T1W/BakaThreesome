@@ -7,7 +7,7 @@ struct ProgressSettingsView: View {
         Form {
             Section("Shikimori progress") {
                 Toggle("Automatically sync watched episodes", isOn: $model.isEnabled)
-                Text("Watch at least 90% of an episode in one player session. Seeking and replaying the same scenes do not count. Confirm episode numbering in Kinopub before playback.")
+                Text("Watch at least 90% of an episode across playback sessions. Watched segments are saved locally for this account and confirmed episode mapping. Seeking and replaying the same scenes do not count. Confirm episode numbering in Kinopub before playback.")
                     .foregroundStyle(.secondary)
                 Text("Only the next episode of a title in Watching is updated. Ratings and list statuses stay as you set them. Rewatching is managed manually.")
                     .foregroundStyle(.secondary)

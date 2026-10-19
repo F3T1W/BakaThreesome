@@ -6,10 +6,10 @@ import Tracking
 @MainActor
 @Observable
 final class ProgressSyncModel {
-    var isEnabled = UserDefaults.standard.bool(forKey: "tracking.automaticProgress") {
+    var isEnabled: Bool {
         didSet {
-            UserDefaults.standard.set(isEnabled, forKey: "tracking.automaticProgress")
-            coverage = WatchedCoverage()
+            defaults.set(isEnabled, forKey: "tracking.automaticProgress")
+            coverage.interrupt()
             if isEnabled { retry() }
         }
     }
@@ -20,6 +20,12 @@ final class ProgressSyncModel {
     let shikimori: ShikimoriModel
     @ObservationIgnored private let delivery: ProgressDelivery
     @ObservationIgnored private let store: ProgressJournal
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let coverageStore: WatchedCoverageStore
+    @ObservationIgnored private var coverageEpisode: WatchedEpisode?
+    @ObservationIgnored private var savedCoverage: WatchedCoverageState?
+    @ObservationIgnored private var coverageCheckpoint = ContinuousClock.now
+    @ObservationIgnored private var coverageRevision = UUID()
     @ObservationIgnored private var syncTask: Task<Void, Never>?
     @ObservationIgnored private var retryTask: Task<Void, Never>?
     @ObservationIgnored private var context: EpisodeContext?
@@ -29,8 +35,11 @@ final class ProgressSyncModel {
     @ObservationIgnored private var closing = false
     @ObservationIgnored private let clockOrigin = ContinuousClock.now
 
-    init(shikimori: ShikimoriModel, store: ProgressJournal = ProgressJournal()) {
-        self.shikimori = shikimori; self.store = store
+    init(shikimori: ShikimoriModel, store: ProgressJournal = ProgressJournal(),
+         coverageStore: WatchedCoverageStore = WatchedCoverageStore(), defaults: UserDefaults = .standard) {
+        self.shikimori = shikimori; self.store = store; self.coverageStore = coverageStore
+        self.defaults = defaults
+        isEnabled = defaults.bool(forKey: "tracking.automaticProgress")
         delivery = ProgressDelivery(journal: store, client: shikimori)
     }
 
@@ -60,31 +69,68 @@ final class ProgressSyncModel {
     func confirm(_ context: EpisodeContext, number: Int) async {
         guard let userID = shikimori.snapshot.profile?.id, !isSyncing else { return }
         do {
+            await checkpointCoverage(force: true)
             try await store.confirm(EpisodeNumbering(userID: userID, context: context, shikimoriEpisode: number))
-            coverage = WatchedCoverage(); sessionKey = nil; submitted = false
+            resetCoverage()
             await refresh()
             message = "Numbering saved for this title, Kinopub item and season. Future episodes use the same offset."
         } catch { message = "Numbering could not be saved. Check local storage and try again." }
     }
 
-    func begin(_ context: EpisodeContext?) {
+    func begin(_ context: EpisodeContext?) async {
+        await checkpointCoverage(force: true)
         self.context = context
-        coverage = WatchedCoverage(); sessionKey = nil; submitted = false
+        resetCoverage()
     }
 
-    func capture(_ snapshot: PlaybackSnapshot) async {
+    func interruptPlayback() { coverage.interrupt() }
+
+    private func resetCoverage() {
+        coverageRevision = UUID()
+        coverage = WatchedCoverage(); sessionKey = nil; submitted = false
+        coverageEpisode = nil; savedCoverage = nil
+    }
+
+    private func checkpointCoverage(force: Bool = false) async {
+        guard let episode = coverageEpisode, let state = coverage.state, state != savedCoverage,
+              force || coverageCheckpoint.duration(to: .now) >= .seconds(5) else { return }
+        let revision = coverageRevision
+        do {
+            try await coverageStore.save(WatchedCoverageRecord(episode: episode, state: state))
+            guard revision == coverageRevision else { return }
+            savedCoverage = state; coverageCheckpoint = .now
+        } catch { message = "Watched segments could not be saved. The app will retry; check local storage." }
+    }
+
+    func capture(_ snapshot: PlaybackSnapshot, at instant: Double? = nil) async {
         guard isEnabled, isLoaded, let context, let number = number(for: context),
               let userID = shikimori.snapshot.profile?.id else {
-            coverage = WatchedCoverage(); sessionKey = nil
+            await checkpointCoverage(force: true)
+            coverage.interrupt()
             return
         }
         let key = "\(userID):\(context.id):\(number)"
         if key != sessionKey {
-            coverage = WatchedCoverage(); submitted = false; sessionKey = key
+            await checkpointCoverage(force: true)
+            let revision = UUID(); coverageRevision = revision
+            let episode = WatchedEpisode(userID: userID, context: context, number: number)
+            do {
+                let state = try await coverageStore.state(for: episode)
+                guard revision == coverageRevision, self.context?.id == context.id,
+                      isEnabled, shikimori.snapshot.profile?.id == userID, self.number(for: context) == number else { return }
+                coverage = WatchedCoverage(restoring: state)
+                savedCoverage = state; coverageEpisode = episode; coverageCheckpoint = .now
+                submitted = false; sessionKey = key
+            } catch {
+                message = "Saved watched segments could not be read. Existing data was kept; check local storage."
+                return
+            }
         }
         let elapsed = clockOrigin.duration(to: .now).components
-        coverage.observe(snapshot, at: Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18)
-        guard coverage.isComplete, !submitted else { return }
+        coverage.observe(snapshot, at: instant ?? (Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18))
+        await checkpointCoverage(force: coverage.isComplete || snapshot.isPaused || snapshot.hasEnded)
+        guard isEnabled, self.context?.id == context.id, shikimori.snapshot.profile?.id == userID,
+              self.number(for: context) == number, coverage.isComplete, !submitted else { return }
         do {
             try await store.enqueue(WatchedEpisode(userID: userID, context: context, number: number))
             submitted = true
@@ -128,6 +174,7 @@ final class ProgressSyncModel {
 
     func shutdown() async {
         closing = true
+        await checkpointCoverage(force: true)
         retryTask?.cancel()
         await retryTask?.value
         await syncTask?.value

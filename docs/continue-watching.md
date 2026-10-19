@@ -18,7 +18,7 @@
 
 Play from Beginning is available in the episode controls and the Continue
 Watching row context menu. Remove from Continue Watching deletes only that local
-entry and is disabled while that episode is playing. Failed startup preserves
+entry and is disabled while an episode of that anime is playing. Failed startup preserves
 existing progress. If the saved position is outside a changed version's duration,
 choose Play from Beginning; the app does not silently discard the old entry.
 
@@ -34,7 +34,34 @@ and season. Gaps and season boundaries disable the corresponding button; the app
 does not guess a URL or skip to a different season. While a linked episode is
 playing, the buttons are disabled if the browser shows a different episode or
 title. Return to the playing episode or stop playback to navigate from that page.
-This is manual navigation; reaching EOF does not automatically start another episode.
+Manual navigation remains available whether Auto-play next episode is enabled or disabled.
+
+### Optional automatic next episode
+
+Auto-play next episode in the Kinopub panel is off by default and saved locally.
+When the linked player reaches EOF, it offers the next discovered episode in the
+same season with an eight-second countdown. Play Now advances immediately; Cancel
+suppresses another offer for that player session. Enabling the switch while a
+player is already held at EOF does not start a delayed offer.
+
+Stop, disabling autoplay, leaving/reloading the page, changing the player session,
+missing destinations, a stream failure or closing mpv cancels the offer. The app
+rechecks the active player and EOF immediately before advancing. It never infers a
+new season, skips an undiscovered episode, or treats EOF as proof of watched
+coverage. Seeking to EOF can offer the next episode; watched-count synchronization
+still requires its separate coverage policy.
+
+Automatic advance uses the same refreshed-page playback path as the manual next
+button, including the destination's saved position and audio/subtitle preferences.
+If Kinopub requires a real web-player gesture, preparation waits for that gesture;
+the app does not bypass the website's playback policy.
+
+Continue Watching shows one card per Shikimori anime ID: the episode with the most
+recent playback activity, even if it has a lower episode number. Per-episode resume
+positions remain stored for manual selection. A persisted title cursor prevents
+completion or removal of the latest episode from resurfacing an older card. The
+existing history database is retained; older records without a cursor are grouped
+by update time until new activity establishes one.
 
 Movies opened on their linked base title page can be tracked as one movie.
 Unlinked website browsing, other seasons, arbitrary diagnostic streams and pages
@@ -75,6 +102,12 @@ local EOF handling alone never triggers them.
 
 ## Verification
 
+Autoplay tests cover the default and persisted switch, countdown expiry, Play Now,
+cancellation, repeated EOF samples, missing or foreign destinations and session
+changes. The optional installed-mpv test plays generated local video to natural
+EOF and verifies a single cancellable next-episode offer without remote writes.
+A full real-episode EOF-to-next transition remains a live-use validation step.
+
 Adjacent-navigation tests cover previous/next boundaries, missing episodes, foreign
 items and seasons, movies, and browsing away from the playing episode. A live
 Kakegurui S01E02 to S01E03 transition launched video/audio with Japanese audio and
@@ -106,3 +139,7 @@ Reference: [mpv playback control and EOF properties](https://mpv.io/manual/stabl
 
 Optional watched-count synchronization is independent of resume positions. See
 [Automatic Shikimori progress](automatic-progress.md) for explicit numbering and delivery.
+
+The one-card tests cover multiple titles, revisiting an earlier episode, stale
+writes, retaining individual resume points and not resurfacing an older episode
+after completion/removal and a disk-store restart.

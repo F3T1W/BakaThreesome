@@ -96,6 +96,9 @@ an episode using the native picker, play its primary stream in mpv, then use
 Continue Watching after stopping or restarting the app. Continue reopens the
 same episode and retrieves its current stream before restoring position. A web
 player gesture may be needed by the website. Play from Beginning is also available.
+The native previous/next buttons start discovered adjacent episodes in the linked
+season. Optional Auto-play next episode offers the next episode after EOF with an
+eight-second countdown, Play Now and Cancel; it is off by default.
 Retry Playback refreshes a failed linked episode stream at the last known position;
 normal completion and closing the player do not trigger recovery.
 Automatic watched counts are available as an opt-in feature in Settings > Progress;

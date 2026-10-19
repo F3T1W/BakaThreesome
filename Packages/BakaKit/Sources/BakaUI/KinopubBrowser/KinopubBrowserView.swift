@@ -63,6 +63,9 @@ struct KinopubBrowserView: View {
                     .buttonStyle(.glass)
                     .disabled(model.isWorking || model.isPreparing)
                 }
+                if model.currentEpisode?.season ?? 0 > 0 {
+                    EpisodeAutoplayView(model: model.autoplay)
+                }
                 if let episode = model.currentEpisode {
                     Text("\(episode.title) · \(episode.label) · Local playback progress enabled")
                         .font(.caption).foregroundStyle(.secondary)
@@ -76,6 +79,7 @@ struct KinopubBrowserView: View {
                 if progress.isEnabled, let message = progress.message {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
+                OpeningSkipView(model: model.opening)
                 PlaybackTracksView(model: model.tracks)
                 if !model.playerStatus.isEmpty { Text(model.playerStatus).font(.caption).foregroundStyle(.secondary) }
                 if let error = model.progressError {

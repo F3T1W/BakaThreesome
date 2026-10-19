@@ -86,7 +86,7 @@ Developer ID signing, notarization, runtime distribution, and architecture
 verification are required before distribution. mpv and SVP are not bundled.
 
 Remaining work: automatic external alias lookup, sustained playback validation, automatic episode-offset inference,
-and tracking across multiple playback sessions. Embedded libmpv requires a separate experiment.
+and sustained cross-session playback validation. Watched timeline coverage is now persisted across sessions. Embedded libmpv requires a separate experiment.
 
 [Title matching, website search and saved destinations](title-matching.md).
 

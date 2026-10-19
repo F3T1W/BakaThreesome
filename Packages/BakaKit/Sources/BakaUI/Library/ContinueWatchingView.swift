@@ -7,7 +7,7 @@ struct ContinueWatchingView: View {
     let isPreparingPlayback: Bool
     let onResume: (ResumeEntry, Bool) -> Void
 
-    private var animeIDs: [Int64] { model.entries.map { $0.context.animeID.rawValue } }
+    private var animeIDs: [Int64] { model.continueEntries.map { $0.context.animeID.rawValue } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,12 +21,12 @@ struct ContinueWatchingView: View {
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.red).padding()
             }
-            if model.entries.isEmpty {
+            if model.continueEntries.isEmpty {
                 ContentUnavailableView("Nothing to Continue", systemImage: "play.circle", description:
                     Text("Open a title from Watchlist or Catalog, choose an episode, and play it in mpv. Its position will be saved here."))
             } else {
                 AnimeGrid {
-                    ForEach(model.entries) { entry in
+                    ForEach(model.continueEntries) { entry in
                         VStack(alignment: .leading, spacing: 10) {
                             Button { onResume(entry, false) } label: {
                                 AnimeThumbnail(animeID: entry.context.animeID.rawValue,
@@ -52,7 +52,7 @@ struct ContinueWatchingView: View {
                             Button("Continue") { onResume(entry, false) }.disabled(model.activeEpisodeID == entry.id || isPreparingPlayback)
                             Button("Play from Beginning") { onResume(entry, true) }.disabled(isPreparingPlayback)
                             Button("Remove from Continue Watching", role: .destructive) { Task { await model.remove(entry) } }
-                                .disabled(model.activeEpisodeID == entry.id)
+                                .disabled(!model.canRemove(entry))
                         }
                     }
                 }

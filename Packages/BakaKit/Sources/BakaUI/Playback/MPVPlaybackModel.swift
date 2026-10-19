@@ -16,6 +16,9 @@ final class MPVPlaybackModel {
     private(set) var svpStatus = "SVP: Off"
     private(set) var progressError: String?
     let tracks = PlaybackTrackModel()
+    let opening = OpeningSkipModel()
+    var onPlaybackSnapshot: (@MainActor (PlaybackSnapshot, EpisodeContext?, UUID) -> Void)?
+    var onPlaybackStopped: (@MainActor () -> Void)?
     var onStreamFailure: (@MainActor (EpisodeContext, Double) -> Void)?
     private let progress: ProgressSyncModel
     private let history: ResumeLibraryModel
@@ -29,6 +32,7 @@ final class MPVPlaybackModel {
 
     init(history: ResumeLibraryModel, progress: ProgressSyncModel) {
         self.history = history; self.progress = progress
+        opening.onSeek = { [weak progress] in progress?.interruptPlayback() }
     }
 
     func start(source: PlaybackSource, episode: EpisodeContext?, requestedAt: ContinuousClock.Instant? = nil) async throws {
@@ -99,7 +103,7 @@ final class MPVPlaybackModel {
                         if let episode, episode.isValid, state.videoCodec != nil {
                             activeEpisode = episode
                             lastPosition = source.startSeconds ?? 0
-                            progress.begin(episode)
+                            await progress.begin(episode)
                             recorder = ResumeRecorder(context: episode, store: history.store)
                             history.activeEpisodeID = episode.id
                         }
@@ -115,6 +119,8 @@ final class MPVPlaybackModel {
                         Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
                             .notice("Startup seconds: player=\(process, privacy: .public), media=\(media, privacy: .public), ready=\(total, privacy: .public), compatibilityRetry=\(retriedProbe && source.usesFastHLSStartup, privacy: .public)")
                         await capture(state)
+                        await opening.connect(player: player, chapters: player)
+                        opening.observe(state)
                         await tracks.connect(player)
                         startMonitoring(player)
                         return
@@ -130,6 +136,13 @@ final class MPVPlaybackModel {
                 .notice("Startup failed while \(phase, privacy: .public)")
             throw error
         }
+    }
+
+    func hasEnded(_ context: EpisodeContext) async -> Bool {
+        guard let player = engine, activeEpisode?.id == context.id,
+              let snapshot = try? await player.snapshot(), !Task.isCancelled,
+              engine === player, activeEpisode?.id == context.id else { return false }
+        return snapshot.hasEnded && !snapshot.hasFailed
     }
 
     func warmUp() {
@@ -161,6 +174,8 @@ final class MPVPlaybackModel {
     }
 
     func stop() async {
+        onPlaybackStopped?()
+        opening.disconnect()
         tracks.disconnect()
         monitor?.cancel()
         await monitor?.value
@@ -169,7 +184,7 @@ final class MPVPlaybackModel {
         await flush()
         await engine?.stop()
         engine = nil; recorder = nil; activeEpisode = nil
-        progress.begin(nil)
+        await progress.begin(nil)
         history.activeEpisodeID = nil
         svpStatus = "SVP: Off"
         if !status.isEmpty { status = "Playback stopped." }
@@ -202,13 +217,17 @@ final class MPVPlaybackModel {
     }
 
     private func startMonitoring(_ player: MPVPlaybackEngine) {
+        let sessionID = UUID()
         monitor = Task { [weak self] in
             do {
                 while !Task.isCancelled {
                     let snapshot = try await player.snapshot(until: ContinuousClock.now.advanced(by: .seconds(15)))
                     try Task.checkCancellation()
                     if snapshot.hasFailed { throw PlaybackError.mediaFailed }
+                    self?.opening.observe(snapshot)
                     await self?.capture(snapshot)
+                    try Task.checkCancellation()
+                    if let self { self.onPlaybackSnapshot?(snapshot, self.activeEpisode, sessionID) }
                     await self?.tracks.refresh()
                     do {
                         let state = try await player.interpolationStatus()
@@ -227,15 +246,17 @@ final class MPVPlaybackModel {
                 }
             } catch is CancellationError {
             } catch {
+                self?.onPlaybackStopped?()
                 let episode = self?.activeEpisode
                 let seconds = self?.lastPosition ?? 0
                 let streamFailed = (error as? PlaybackError).map(PlaybackRecoveryPoint.canRetry) ?? false
                 // A stream failure and an externally closed window both preserve the last good sample.
+                self?.opening.disconnect()
                 self?.tracks.disconnect()
                 await self?.flush()
                 await player.stop()
                 self?.engine = nil; self?.recorder = nil; self?.activeEpisode = nil
-                self?.progress.begin(nil)
+                await self?.progress.begin(nil)
                 self?.history.activeEpisodeID = nil
                 self?.svpStatus = "SVP: Off"
                 self?.status = streamFailed

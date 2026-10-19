@@ -30,6 +30,16 @@ private final class ResumeRecord {
     }
 }
 
+@Model
+private final class ResumeTitleCursor {
+    @Attribute(.unique) var animeID: Int64
+    var episodeID: String
+    var updatedAt: Date
+    init(_ entry: ResumeEntry) {
+        animeID = entry.context.animeID.rawValue; episodeID = entry.id; updatedAt = entry.updatedAt
+    }
+}
+
 /// Keeps its ModelContext on one actor; UI and player exchange only immutable value types.
 public actor SwiftDataResumeStore: ResumeHistoryStore {
     private let file: URL
@@ -50,6 +60,13 @@ public actor SwiftDataResumeStore: ResumeHistoryStore {
         return entries
     }
 
+    public func snapshot() async throws -> ResumeHistorySnapshot {
+        let values = try entries()
+        let cursors = try modelContext().fetch(FetchDescriptor<ResumeTitleCursor>())
+        let latest = Dictionary(uniqueKeysWithValues: cursors.map { ($0.animeID, $0.episodeID) })
+        return ResumeHistorySnapshot(entries: values, latestEpisodeIDs: latest)
+    }
+
     public func save(_ entry: ResumeEntry) throws {
         guard entry.isValid else { throw CocoaError(.coderInvalidValue) }
         let context = try modelContext()
@@ -61,16 +78,36 @@ public actor SwiftDataResumeStore: ResumeHistoryStore {
         } else {
             context.insert(ResumeRecord(entry))
         }
-        do { try context.save() }
+        do {
+            try updateCursor(entry, in: context)
+            try context.save()
+        }
         catch { context.rollback(); throw error }
     }
 
     public func remove(id: String) throws {
         let context = try modelContext()
         if let record = try record(id: id, in: context) {
-            context.delete(record)
-            do { try context.save() }
+            do {
+                try updateCursor(record.entry, in: context)
+                context.delete(record)
+                try context.save()
+            }
             catch { context.rollback(); throw error }
+        }
+    }
+
+    private func updateCursor(_ entry: ResumeEntry, in context: ModelContext) throws {
+        let animeID = entry.context.animeID.rawValue
+        var descriptor = FetchDescriptor<ResumeTitleCursor>(predicate: #Predicate { $0.animeID == animeID })
+        descriptor.fetchLimit = 1
+        if let cursor = try context.fetch(descriptor).first {
+            if entry.updatedAt >= cursor.updatedAt { cursor.episodeID = entry.id; cursor.updatedAt = entry.updatedAt }
+        } else {
+            let all = try context.fetch(FetchDescriptor<ResumeRecord>()).map(\.entry)
+                .filter { $0.context.animeID.rawValue == animeID }
+            let latest = (all + [entry]).max { $0.updatedAt < $1.updatedAt } ?? entry
+            context.insert(ResumeTitleCursor(latest))
         }
     }
 
@@ -82,7 +119,7 @@ public actor SwiftDataResumeStore: ResumeHistoryStore {
 
     private func modelContext() throws -> ModelContext {
         if let context { return context }
-        let schema = Schema([ResumeRecord.self])
+        let schema = Schema([ResumeRecord.self, ResumeTitleCursor.self])
         let configuration: ModelConfiguration
         if inMemory {
             configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)

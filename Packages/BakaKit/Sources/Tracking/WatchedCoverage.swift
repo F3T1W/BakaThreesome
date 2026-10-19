@@ -1,7 +1,7 @@
 import Foundation
 import Playback
 
-/// Counts the union of normally played timeline intervals during one player session.
+/// Counts the union of normally played timeline intervals across player sessions.
 /// Resume positions, seeks, repeated scenes and long observation gaps cannot create coverage.
 public struct WatchedCoverage: Sendable {
     private struct Sample: Sendable {
@@ -14,7 +14,22 @@ public struct WatchedCoverage: Sendable {
     public private(set) var fraction: Double = 0
     public var isComplete: Bool { fraction >= 0.9 }
 
-    public init() {}
+    public init(restoring state: WatchedCoverageState? = nil) {
+        guard let state, state.isValid else { return }
+        intervals = state.intervals
+        duration = state.duration
+        fraction = min(1, intervals.reduce(0) { $0 + $1.upperBound - $1.lowerBound } / state.duration)
+    }
+
+    public var state: WatchedCoverageState? {
+        guard let duration, !intervals.isEmpty else { return nil }
+        return WatchedCoverageState(duration: duration, intervals: intervals.compactMap {
+            let end = min(duration, $0.upperBound)
+            return end > $0.lowerBound ? $0.lowerBound...end : nil
+        })
+    }
+
+    public mutating func interrupt() { previous = nil }
 
     public mutating func observe(_ snapshot: PlaybackSnapshot, at instant: Double) {
         guard !snapshot.hasFailed, instant.isFinite, let total = snapshot.position.duration, total.isFinite, total > 0,
