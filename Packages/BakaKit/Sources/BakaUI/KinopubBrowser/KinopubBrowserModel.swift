@@ -18,6 +18,7 @@ struct BrowserEpisodeChoice: Identifiable {
 final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessageHandler, WKUIDelegate {
     var useSVP: Bool { get { playback.useSVP } set { playback.useSVP = newValue } }
     var svpStatus: String { playback.svpStatus }
+    var tracks: PlaybackTrackModel { playback.tracks }
     var playerStatus: String { playback.status }
     var progressError: String? { playback.progressError }
     private(set) var isWorking = false

@@ -59,6 +59,7 @@ struct KinopubBrowserView: View {
                 if progress.isEnabled, let message = progress.message {
                     Text(message).font(.caption).foregroundStyle(.secondary)
                 }
+                PlaybackTracksView(model: model.tracks)
                 if !model.playerStatus.isEmpty { Text(model.playerStatus).font(.caption).foregroundStyle(.secondary) }
                 if let error = model.progressError {
                     Label(error, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange)

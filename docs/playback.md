@@ -62,8 +62,8 @@ IPC media control, not video rendering or SVP.
   been exercised; the app advertises only its own player.
 - Experimental browser media discovery and per-file User-Agent/Referer are now
   available; see [Kinopub browser](kinopub-browser.md). One live Kinopub episode has been verified with video and audio; cookie transfer
-  is not implemented. Long-session stability remains unverified. No integrated native video UI,
-  track selection or automatic stream recovery. Opt-in Shikimori updates and local linked-episode
+  is not implemented. Long-session stability remains unverified. There is no integrated native video UI.
+  Native track selection and explicit stream recovery are available. Opt-in Shikimori updates and local linked-episode
   position persistence is implemented; see [Continue Watching](continue-watching.md).
   Kinopub website sign-in and playback are described in
   [Kinopub browser](kinopub-browser.md).
@@ -279,3 +279,31 @@ SVP enabled confirmed simultaneous video/audio and active interpolation at
 23.98 → 59.94 fps, ready in 26.03 seconds. It resumed the existing episode position,
 advanced normally and was stopped through the app. This is a short live success,
 not a whole-episode stability result or a guarantee about future CDN routing.
+
+## Audio and subtitles
+
+During playback, the Kinopub panel shows native Audio and Subtitles selectors.
+They switch the current mpv tracks through IPC without loading the episode again.
+Track labels use the language and title, including HLS rendition comments when
+mpv exposes them. Duplicate labels include a track number for this session.
+
+The initial preference is Japanese audio with Russian subtitles. Full subtitles
+are preferred over forced subtitles. If Japanese audio is unavailable, the current
+mpv audio remains selected. If Russian subtitles are unavailable, subtitles stay
+off and the panel explains the fallback. Other original languages can be selected
+manually; Japanese is a default preference, not inferred original-language metadata.
+
+A successful manual choice saves its language and rendition name in local
+UserDefaults. Track IDs and stream addresses are never saved as preferences.
+The next episode first applies per-file language options, then matches the saved
+rendition name among tracks of that language. Numbered rendition prefixes are
+ignored when matching names. If that rendition is missing, another track in the
+same language is used. Off is remembered separately. The reset button restores
+Japanese audio and Russian subtitles. Keyboard changes in mpv refresh the app's
+selectors without overwriting the saved preference or forcing a switch back.
+
+Track polling and switching failures are nonfatal to playback. Selectors are
+cleared on stop, and delayed replies cannot update a later player session.
+The optional `TrackSwitchingIntegrationTests` generate a local MKV with Japanese
+and Russian audio plus English and Russian subtitles using Homebrew ffmpeg.
+They verify defaults, live switching, Off and unchanged playback position.

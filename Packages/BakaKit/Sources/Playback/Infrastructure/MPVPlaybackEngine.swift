@@ -1,7 +1,7 @@
 import Foundation
 
 public actor MPVPlaybackEngine: PlaybackEngine {
-    private struct Session: Sendable {
+    struct Session: Sendable {
         let id = UUID()
         let directory: OwnedTemporaryDirectory
         let process: ManagedProcess
@@ -188,7 +188,7 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         try registration.publish(socket: current.directory.url.appendingPathComponent("mpv.sock"), processID: processID)
     }
 
-    private func command(_ arguments: [MPVValue]) async throws -> MPVValue {
+    func command(_ arguments: [MPVValue]) async throws -> MPVValue {
         let current = try runningSession()
         let result = try await current.connection.request(arguments)
         try ensureCurrent(current.id)
@@ -218,12 +218,12 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         }
     }
 
-    private func runningSession() throws -> Session {
+    func runningSession() throws -> Session {
         guard ready, let session, stopTask == nil else { throw PlaybackError.notRunning }
         return session
     }
 
-    private func ensureCurrent(_ id: UUID) throws {
+    func ensureCurrent(_ id: UUID) throws {
         guard session?.id == id, stopTask == nil else { throw PlaybackError.notRunning }
     }
 }

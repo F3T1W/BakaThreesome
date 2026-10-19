@@ -14,7 +14,10 @@ Shikimori authentication is independent and lives in Settings > Accounts.
    source from the video's source element, preserving the master playlist's tracks.
    The individual-source list and optional External audio picker remain available
    for diagnostics and sources that genuinely expose only separate tracks.
-5. Stop mpv stops the app-owned player. Clear Session clears this browser's website
+5. During playback, use Audio and Subtitles in the native panel to switch tracks.
+   Japanese audio and Russian subtitles are preferred initially; manual choices
+   and Off are remembered for later episodes. The reset button restores these defaults.
+6. Stop mpv stops the app-owned player. Clear Session clears this browser's website
    data and stops its player; it does not affect Safari or another browser profile.
 
 This stage intentionally uses the website for search/episode selection. A native

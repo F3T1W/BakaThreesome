@@ -1,6 +1,7 @@
 import Foundation
 
 public struct PlaybackSource: Sendable {
+    public let trackPreferences: PlaybackTrackPreferences?
     public let usesFastHLSStartup: Bool
     public let startSeconds: Double?
     public let url: URL
@@ -9,7 +10,7 @@ public struct PlaybackSource: Sendable {
     public let origin: URL?
     public let userAgent: String?
 
-    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil, startSeconds: Double? = nil, fastHLSStartup: Bool = false) throws {
+    public init(url: URL, referrer: URL? = nil, userAgent: String? = nil, audioURL: URL? = nil, origin: URL? = nil, startSeconds: Double? = nil, fastHLSStartup: Bool = false, trackPreferences: PlaybackTrackPreferences? = nil) throws {
         guard url.isFileURL || (["http", "https"].contains(url.scheme?.lowercased() ?? "")
                                && url.host != nil && url.user == nil && url.password == nil),
               referrer.map({ $0.scheme == "https" && $0.host != nil && $0.user == nil && $0.password == nil }) ?? true,
@@ -27,6 +28,7 @@ public struct PlaybackSource: Sendable {
         }
         if let startSeconds, !startSeconds.isFinite || startSeconds < 0 { throw PlaybackError.invalidSeek }
         usesFastHLSStartup = fastHLSStartup && !url.isFileURL && url.pathExtension.lowercased() == "m3u8"
+        self.trackPreferences = trackPreferences
         self.startSeconds = startSeconds
         self.url = url
         self.audioURL = audioURL
@@ -37,7 +39,13 @@ public struct PlaybackSource: Sendable {
 
     public func conservativeStartup() throws -> PlaybackSource {
         try PlaybackSource(url: url, referrer: referrer, userAgent: userAgent, audioURL: audioURL,
-                           origin: origin, startSeconds: startSeconds, fastHLSStartup: false)
+                           origin: origin, startSeconds: startSeconds, fastHLSStartup: false, trackPreferences: trackPreferences)
+    }
+
+    public func preferringTracks(_ preferences: PlaybackTrackPreferences) throws -> PlaybackSource {
+        try PlaybackSource(url: url, referrer: referrer, userAgent: userAgent, audioURL: audioURL,
+                           origin: origin, startSeconds: startSeconds, fastHLSStartup: usesFastHLSStartup,
+                           trackPreferences: preferences)
     }
 
     var mpvOptions: [String: MPVValue] {
@@ -48,6 +56,13 @@ public struct PlaybackSource: Sendable {
         } else {
             options["demuxer-lavf-probe-info"] = .string("auto")
             options["demuxer-lavf-o"] = .string("http_persistent=0,http_multiple=0")
+        }
+        if let preferences = trackPreferences {
+            options["alang"] = .string(preferences.audio.language)
+            options["aid"] = .string(preferences.audio.isEnabled ? "auto" : "no")
+            options["slang"] = .string(preferences.subtitles.language)
+            options["sid"] = .string(preferences.subtitles.isEnabled ? "auto" : "no")
+            options["subs-fallback"] = .string("no")
         }
         if let startSeconds { options["start"] = .string(String(startSeconds)) }
         if let referrer { options["referrer"] = .string(referrer.absoluteString) }

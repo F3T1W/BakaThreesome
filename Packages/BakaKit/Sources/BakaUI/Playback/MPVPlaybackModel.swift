@@ -15,6 +15,7 @@ final class MPVPlaybackModel {
     private(set) var status = ""
     private(set) var svpStatus = "SVP: Off"
     private(set) var progressError: String?
+    let tracks = PlaybackTrackModel()
     var onStreamFailure: (@MainActor (EpisodeContext, Double) -> Void)?
     private let progress: ProgressSyncModel
     private let history: ResumeLibraryModel
@@ -36,6 +37,7 @@ final class MPVPlaybackModel {
         defer { isWorking = false }
         let requested = requestedAt ?? ContinuousClock.now
         await stop()
+        let source = try source.preferringTracks(tracks.preferences)
         status = "Starting mpv…"
         progressError = nil
         var phase = "starting the player"
@@ -113,6 +115,7 @@ final class MPVPlaybackModel {
                         Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
                             .notice("Startup seconds: player=\(process, privacy: .public), media=\(media, privacy: .public), ready=\(total, privacy: .public), compatibilityRetry=\(retriedProbe && source.usesFastHLSStartup, privacy: .public)")
                         await capture(state)
+                        await tracks.connect(player)
                         startMonitoring(player)
                         return
                     }
@@ -158,6 +161,7 @@ final class MPVPlaybackModel {
     }
 
     func stop() async {
+        tracks.disconnect()
         monitor?.cancel()
         await monitor?.value
         monitor = nil
@@ -205,6 +209,7 @@ final class MPVPlaybackModel {
                     try Task.checkCancellation()
                     if snapshot.hasFailed { throw PlaybackError.mediaFailed }
                     await self?.capture(snapshot)
+                    await self?.tracks.refresh()
                     do {
                         let state = try await player.interpolationStatus()
                         switch state {
@@ -226,6 +231,7 @@ final class MPVPlaybackModel {
                 let seconds = self?.lastPosition ?? 0
                 let streamFailed = (error as? PlaybackError).map(PlaybackRecoveryPoint.canRetry) ?? false
                 // A stream failure and an externally closed window both preserve the last good sample.
+                self?.tracks.disconnect()
                 await self?.flush()
                 await player.stop()
                 self?.engine = nil; self?.recorder = nil; self?.activeEpisode = nil
