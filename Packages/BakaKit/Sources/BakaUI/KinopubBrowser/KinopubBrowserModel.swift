@@ -22,6 +22,8 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     var progressError: String? { playback.progressError }
     private(set) var isWorking = false
     private(set) var isPreparing = false
+    private(set) var recoveryPoint: PlaybackRecoveryPoint?
+    @ObservationIgnored private var playbackTarget: PlaybackRecoveryPoint?
     private(set) var websiteOrigin = URL(string: "https://gxux.pkr.ovh")!
     var audioSourceID: UUID?
     var address = "https://gxux.pkr.ovh"
@@ -39,13 +41,19 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     @ObservationIgnored private var operationID = UUID()
     @ObservationIgnored private var preparationID = UUID()
     @ObservationIgnored private var preparing: Task<Void, Never>?
-    @ObservationIgnored private var pendingResume: (context: EpisodeContext, seconds: Double)?
+    @ObservationIgnored private var pendingResume: PlaybackRecoveryPoint?
     @ObservationIgnored private var isStopping = false
     @ObservationIgnored private var hasLoaded = false
 
     init(history: ResumeLibraryModel, playback: MPVPlaybackModel) {
         self.history = history; self.playback = playback
         super.init()
+        playback.onStreamFailure = { [weak self] context, seconds in
+            guard let self, let target = self.playbackTarget, target.context == context,
+                  self.currentEpisode?.id == context.id, self.websiteOrigin == target.origin else { return }
+            self.recoveryPoint = PlaybackRecoveryPoint(context: context, origin: target.origin, seconds: seconds)
+            self.status = "The episode stream was interrupted. Retry playback to refresh it."
+        }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = KinopubWebsiteSession.dataStore()
         configuration.mediaTypesRequiringUserActionForPlayback = .all
@@ -101,11 +109,11 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         loadPage(url)
     }
 
-    private func loadPage(_ url: URL) {
+    private func loadPage(_ url: URL, refresh: Bool = false) {
         hasLoaded = true; finishedURL = nil
         errorMessage = nil; candidates = []; episodeChoices = []; audioSourceID = nil
         address = url.absoluteString
-        webView.load(URLRequest(url: url))
+        webView.load(URLRequest(url: url, cachePolicy: refresh ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy))
     }
 
     func openTitle(anime: AnimeSummary, mapping: EpisodeMapping) {
@@ -125,17 +133,29 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
 
     func resume(_ entry: ResumeEntry, fromBeginning: Bool = false) {
         guard entry.isValid, operation == nil else { return }
+        preparePlayback(PlaybackRecoveryPoint(context: entry.context, origin: websiteOrigin,
+                                              seconds: fromBeginning ? 0 : entry.position.seconds))
+    }
+
+    func retryPlayback(fromBeginning: Bool = false) {
+        guard let point = recoveryPoint, point.origin == websiteOrigin else { return }
+        preparePlayback(PlaybackRecoveryPoint(context: point.context, origin: point.origin,
+                                              seconds: fromBeginning ? 0 : point.seconds), isRetry: true)
+    }
+
+    private func preparePlayback(_ point: PlaybackRecoveryPoint, isRetry: Bool = false) {
+        guard point.isValid, operation == nil else { return }
         hasLoaded = true
         cancelPreparation()
+        if isRetry { recoveryPoint = point }
         run {
             await self.playback.stop()
             try Task.checkCancellation()
-            self.linkedTitle = entry.context
-            let context = entry.context
-            let suffix = context.season > 0 ? "/s\(context.season)e\(context.episode)" : ""
-            self.loadPage(self.websiteOrigin.appendingPathComponent("item/view/\(context.kinopubItemID)" + suffix))
-            self.pendingResume = (context, fromBeginning ? 0 : entry.position.seconds)
+            self.linkedTitle = point.context
+            self.loadPage(point.pageURL, refresh: true)
+            self.pendingResume = point
             self.isPreparing = true
+            self.status = "Refreshing the episode stream for playback…"
         }
     }
 
@@ -181,10 +201,15 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         if navigationAction.targetFrame?.isMainFrame == false {
             return url?.scheme == "https" || url?.absoluteString == "about:blank" ? .allow : .cancel
         }
-        if let pendingResume, !matchesPending(url, context: pendingResume.context) { cancelPreparation() }
         guard isAllowed(url) else {
             errorMessage = "Navigation to another site was blocked. Enter its trusted HTTPS address above if this is your Kinopub mirror."
             return .cancel
+        }
+        if let pendingResume {
+            if !matchesPending(url, context: pendingResume.context) { cancelPreparation() }
+        } else {
+            recoveryPoint = nil
+            playbackTarget = nil
         }
         return .allow
     }
@@ -213,11 +238,18 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if (error as NSError).code != NSURLErrorCancelled { cancelPreparation(); errorMessage = "The website could not be loaded. Check its address and your connection." }
+        if (error as NSError).code != NSURLErrorCancelled {
+            let retry = pendingResume
+            cancelPreparation()
+            recoveryPoint = retry
+            errorMessage = "The website could not be loaded. Check its address and your connection."
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let retry = pendingResume
         cancelPreparation()
+        recoveryPoint = retry
         errorMessage = "The website stopped loading. Try reloading the page."
     }
 
@@ -243,6 +275,9 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
         guard operation == nil else { return }
         let requested = ContinuousClock.now
         let audioURL = candidates.first(where: { $0.id == audioSourceID })?.url
+        let target = context.map { PlaybackRecoveryPoint(context: $0, origin: websiteOrigin, seconds: seconds) }
+        playbackTarget = target
+        recoveryPoint = nil
         status = "Preparing mpv playback…"
         run {
             let userAgent = try await self.webView.evaluateJavaScript(
@@ -252,7 +287,16 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
             let source = try PlaybackSource(url: candidate.url, referrer: candidate.referrerOrigin,
                                             userAgent: userAgent, audioURL: audioURL, origin: candidate.referrerOrigin,
                                             startSeconds: seconds)
-            try await self.playback.start(source: source, episode: context, requestedAt: requested)
+            do {
+                try await self.playback.start(source: source, episode: context, requestedAt: requested)
+            } catch let error as PlaybackError {
+                if PlaybackRecoveryPoint.canRetry(error), let target, target.isValid,
+                   self.playbackTarget?.context == target.context,
+                   self.currentEpisode?.id == target.context.id, self.websiteOrigin == target.origin {
+                    self.recoveryPoint = target
+                }
+                throw error
+            }
             self.status = context == nil ? "Playback is not linked to an episode." : "Local episode progress is saved automatically."
         }
     }
@@ -297,6 +341,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
 
     private func cancelPreparation() {
         preparationID = UUID()
+        recoveryPoint = nil; playbackTarget = nil
         pendingResume = nil; preparing?.cancel(); preparing = nil; isPreparing = false
     }
 
@@ -308,7 +353,10 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
             defer { if operationID == id { operation = nil; isWorking = false } }
             do { try await action() }
             catch is CancellationError { status = "Playback cancelled." }
-            catch let error as PlaybackError { errorMessage = error.errorDescription }
+            catch let error as PlaybackError {
+                status = recoveryPoint == nil ? "Playback failed." : "Retry playback to refresh this episode stream."
+                errorMessage = error.errorDescription
+            }
             catch let error as ResumeStartError { errorMessage = error.errorDescription }
             catch { errorMessage = "The browser could not prepare this episode. Reopen it and try again." }
         }
@@ -317,6 +365,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     func stop() {
         guard !isStopping else { return }
         cancelPreparation()
+        errorMessage = nil
         let previous = operation
         previous?.cancel()
         let id = UUID(); operationID = id; isStopping = true; isWorking = true
@@ -344,6 +393,7 @@ final class KinopubBrowserModel: NSObject, WKNavigationDelegate, WKScriptMessage
     }
 
     func shutdown() async {
+        playback.onStreamFailure = nil
         cancelPreparation()
         operation?.cancel()
         await operation?.value

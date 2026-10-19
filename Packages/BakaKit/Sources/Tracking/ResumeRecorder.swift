@@ -17,7 +17,7 @@ public actor ResumeRecorder {
 
     @discardableResult
     public func capture(_ snapshot: PlaybackSnapshot, at date: Date = .now, force: Bool = false) async throws -> Bool {
-        guard context.isValid else { return false }
+        guard context.isValid, !snapshot.hasFailed else { return false }
         if snapshot.hasEnded {
             guard !completed else { return false }
             try await store.remove(id: context.id)

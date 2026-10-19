@@ -17,7 +17,7 @@ public struct WatchedCoverage: Sendable {
     public init() {}
 
     public mutating func observe(_ snapshot: PlaybackSnapshot, at instant: Double) {
-        guard instant.isFinite, let total = snapshot.position.duration, total.isFinite, total > 0,
+        guard !snapshot.hasFailed, instant.isFinite, let total = snapshot.position.duration, total.isFinite, total > 0,
               snapshot.position.seconds.isFinite, (0...total).contains(snapshot.position.seconds) else {
             previous = nil
             return

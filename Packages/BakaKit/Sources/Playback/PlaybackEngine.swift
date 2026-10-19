@@ -12,12 +12,14 @@ public protocol PlaybackEngine: Sendable {
 public struct PlaybackSnapshot: Sendable {
     public let hasEnded: Bool
     public init(isPaused: Bool, isIdle: Bool, position: PlaybackPosition,
-                videoCodec: String? = nil, audioCodec: String? = nil, hasEnded: Bool = false,
+                videoCodec: String? = nil, audioCodec: String? = nil, hasEnded: Bool = false, hasFailed: Bool = false,
                 speed: Double = 1, isSeeking: Bool = false) {
         self.isPaused = isPaused; self.isIdle = isIdle; self.position = position
         self.videoCodec = videoCodec; self.audioCodec = audioCodec; self.hasEnded = hasEnded
+        self.hasFailed = hasFailed
         self.speed = speed; self.isSeeking = isSeeking
     }
+    public let hasFailed: Bool
     public let speed: Double
     public let isSeeking: Bool
     public let isPaused: Bool
@@ -38,6 +40,7 @@ public enum PlaybackError: Error, LocalizedError, Equatable {
     case connectionUnavailable
     case disconnected
     case invalidResponse
+    case mediaFailed
     case commandRejected
     case propertyUnavailable
     case invalidMediaURL
@@ -57,6 +60,7 @@ public enum PlaybackError: Error, LocalizedError, Equatable {
         case .connectionUnavailable: "The player IPC connection is not available."
         case .disconnected: "The player IPC connection was closed."
         case .invalidResponse: "mpv returned an unexpected IPC response."
+        case .mediaFailed: "The media stream stopped with an error. Refresh the episode stream and try again."
         case .commandRejected: "mpv could not complete the requested command."
         case .propertyUnavailable: "The requested player property is not available."
         case .invalidMediaURL: "Use a local file or an HTTP or HTTPS media URL."

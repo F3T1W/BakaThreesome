@@ -69,7 +69,17 @@ struct KinopubBrowserView: View {
                     Label(error, systemImage: "exclamationmark.triangle")
                         .font(.caption).foregroundStyle(.red)
                 }
-                if model.primaryManifest != nil {
+                if let point = model.recoveryPoint {
+                    HStack {
+                        Button("Retry Playback", systemImage: "arrow.clockwise") { model.retryPlayback() }
+                            .buttonStyle(.glassProminent)
+                        Button("Play from Beginning") { model.retryPlayback(fromBeginning: true) }
+                            .buttonStyle(.glass)
+                        Text("\(point.context.title) · \(point.context.label) · \(PlaybackTimeText.format(point.seconds))")
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    .disabled(model.isWorking || model.isPreparing)
+                } else if model.primaryManifest != nil {
                     HStack {
                         Button(model.savedEpisode.map { "Resume in mpv · " + PlaybackTimeText.format($0.position.seconds) }
                                ?? "Play Episode in mpv", systemImage: "play.fill") { model.playEpisode() }

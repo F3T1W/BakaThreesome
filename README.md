@@ -96,6 +96,8 @@ an episode using the native picker, play its primary stream in mpv, then use
 Continue Watching after stopping or restarting the app. Continue reopens the
 same episode and retrieves its current stream before restoring position. A web
 player gesture may be needed by the website. Play from Beginning is also available.
+Retry Playback refreshes a failed linked episode stream at the last known position;
+normal completion and closing the player do not trigger recovery.
 Automatic watched counts are available as an opt-in feature in Settings > Progress;
 confirm episode numbering in Kinopub first. Ratings and list statuses remain manual.
 

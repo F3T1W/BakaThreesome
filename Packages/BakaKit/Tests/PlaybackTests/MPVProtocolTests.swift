@@ -127,3 +127,69 @@ import Testing
         throw error
     }
 }
+
+@Test func streamErrorSurvivesOrdinaryRepliesAndANewLoadClearsIt() async throws {
+    let directory = try OwnedTemporaryDirectory()
+    defer { directory.remove() }
+    let executable = directory.url.appendingPathComponent("media-outcome-player")
+    let marker = directory.url.appendingPathComponent("outcome")
+    let script = """
+    #!/usr/bin/python3
+    import json,os,socket,sys
+    path=next(x.split('=',1)[1] for x in sys.argv if x.startswith('--input-ipc-server='))
+    marker=os.path.join(os.path.dirname(__file__),'outcome')
+    server=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
+    server.bind(path);server.listen(1)
+    client,_=server.accept()
+    outcome=None
+    def send(value):
+        client.sendall((json.dumps(value)+'\\n').encode())
+    for line in client.makefile('rb'):
+        request=json.loads(line)
+        command=request['command']
+        if command[0]=='loadfile':
+            outcome=None
+            send({'event':'start-file'})
+            send({'request_id':request['request_id'],'error':'success'})
+            send({'event':'file-loaded'})
+            continue
+        if outcome is None and os.path.exists(marker):
+            with open(marker) as f: outcome=f.read()
+            send({'event':'end-file','reason':'eof' if outcome=='early-eof' else outcome})
+        values={'mpv-version':'test','pause':False,'idle-active':outcome=='error',
+                'time-pos':0 if outcome=='error' else (1199.5 if outcome=='eof' else 42),'duration':1200,
+                'video-codec':None if outcome=='error' else 'h264','audio-codec':'aac',
+                'speed':1,'seeking':False,'eof-reached':outcome in ('error','eof','early-eof')}
+        send({'request_id':request['request_id'],'error':'success','data':values.get(command[1])})
+    """
+    try script.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    let engine = MPVPlaybackEngine(executable: executable, headless: true)
+    do {
+        try await engine.start()
+        try await engine.load(directory.url.appendingPathComponent("synthetic.mkv"))
+        #expect(try await engine.snapshot().position.seconds == 42)
+        try "error".write(to: marker, atomically: true, encoding: .utf8)
+        let failed = try await engine.snapshot()
+        #expect(failed.hasFailed)
+        #expect(!failed.hasEnded)
+        #expect(try await engine.snapshot().hasFailed)
+        try FileManager.default.removeItem(at: marker)
+        try await engine.load(directory.url.appendingPathComponent("refreshed.mkv"))
+        #expect(try await !engine.snapshot().hasFailed)
+        try "eof".write(to: marker, atomically: true, encoding: .utf8)
+        let ended = try await engine.snapshot()
+        #expect(ended.hasEnded)
+        #expect(!ended.hasFailed)
+        try FileManager.default.removeItem(at: marker)
+        try await engine.load(directory.url.appendingPathComponent("truncated.mkv"))
+        try "early-eof".write(to: marker, atomically: true, encoding: .utf8)
+        let truncated = try await engine.snapshot()
+        #expect(truncated.hasFailed)
+        #expect(!truncated.hasEnded)
+        await engine.stop()
+    } catch {
+        await engine.stop()
+        throw error
+    }
+}

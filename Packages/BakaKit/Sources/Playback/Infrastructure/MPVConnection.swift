@@ -9,6 +9,7 @@ final class MPVConnection: @unchecked Sendable {
     private var descriptor: Int32 = -1
     private var buffer = MPVLineBuffer()
     private var nextRequestID = 0
+    private var fileState = MPVFileState()
 
     func connect(to path: String) async throws {
         try await perform {
@@ -53,6 +54,7 @@ final class MPVConnection: @unchecked Sendable {
             let value = try await perform {
                 try cancellation.check()
                 guard self.descriptor >= 0 else { throw PlaybackError.disconnected }
+                if command.first == .string("loadfile") { self.fileState = MPVFileState() }
                 self.nextRequestID += 1
                 let id = self.nextRequestID
                 var data = try JSONEncoder().encode(MPVRequest(command: command, request_id: id))
@@ -63,6 +65,7 @@ final class MPVConnection: @unchecked Sendable {
                 try self.send(data, deadline: deadline, cancellation: cancellation)
                 while true {
                     while let message = try self.buffer.nextMessage() {
+                        self.fileState.receive(message)
                         if awaitFileLoaded {
                             if message.event == "file-loaded" { loaded = true }
                             if message.event == "end-file", message.reason == "error" {
@@ -98,11 +101,16 @@ final class MPVConnection: @unchecked Sendable {
         }
     }
 
+    func mediaHasFailed() async throws -> Bool {
+        try await perform { self.fileState.hasFailed }
+    }
+
     func close() async {
         _ = try? await perform {
             if self.descriptor >= 0 { Darwin.close(self.descriptor) }
             self.descriptor = -1
             self.buffer = MPVLineBuffer()
+            self.fileState = MPVFileState()
         }
     }
 

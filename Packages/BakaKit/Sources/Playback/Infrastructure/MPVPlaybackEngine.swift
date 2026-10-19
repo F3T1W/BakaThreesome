@@ -121,6 +121,13 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         let eof: MPVValue
         do { eof = try await command([.string("get_property"), .string("eof-reached")]) }
         catch PlaybackError.propertyUnavailable { eof = .bool(false) }
+        var hasFailed = try await current.connection.mediaHasFailed()
+        // mpv can report EOF for a truncated network stream. Only infer an
+        // interruption when a valid position is clearly short of a known total.
+        if eof == .bool(true), let seconds, let duration, seconds.isFinite, duration.isFinite,
+           seconds >= 0, duration > 0, duration - seconds > max(5, duration * 0.005) {
+            hasFailed = true
+        }
         try ensureCurrent(current.id)
         guard case .bool(let isPaused) = pause, case .bool(let isIdle) = idle else {
             throw PlaybackError.invalidResponse
@@ -129,7 +136,8 @@ public actor MPVPlaybackEngine: PlaybackEngine {
         return PlaybackSnapshot(
             isPaused: isPaused, isIdle: isIdle,
             position: PlaybackPosition(seconds: seconds ?? 0, duration: duration),
-            videoCodec: videoCodec, audioCodec: audioCodec, hasEnded: eof == .bool(true),
+            videoCodec: videoCodec, audioCodec: audioCodec,
+            hasEnded: eof == .bool(true) && !hasFailed, hasFailed: hasFailed,
             speed: speed ?? 0, isSeeking: seeking != .bool(false)
         )
     }

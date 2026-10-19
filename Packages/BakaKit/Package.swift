@@ -18,7 +18,7 @@ let package = Package(
             dependencies: ["Accounts", "Kinopub", "Catalog", "Matching", "Playback", "Tracking", "ShikimoriBridge"],
             resources: [.process("Resources")]
         ),
-        .testTarget(name: "BakaUITests", dependencies: ["BakaUI", "ShikimoriBridge", "Catalog", "Accounts"]),
+        .testTarget(name: "BakaUITests", dependencies: ["BakaUI", "ShikimoriBridge", "Catalog", "Accounts", "Playback", "Tracking"]),
         .testTarget(name: "ShikimoriBridgeTests", dependencies: ["ShikimoriBridge", "Accounts", "Tracking"]),
         .testTarget(name: "PlaybackTests", dependencies: ["Playback"]),
         .testTarget(name: "KinopubTests", dependencies: ["Kinopub"]),

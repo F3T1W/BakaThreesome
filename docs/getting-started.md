@@ -96,3 +96,13 @@ See [Automatic progress](automatic-progress.md) for numbering, retries and limit
 
 See [Shikimori details](shikimori-integration.md) and
 [Kinopub browser details](kinopub-browser.md) for implementation and verification.
+
+## Recover an interrupted episode
+
+If a linked episode cannot open or its stream fails, choose Retry Playback in the
+Kinopub panel. The app reloads that episode page, obtains the current stream and
+resumes from the displayed position. Start the web player if the site asks for a
+user gesture. Play from Beginning refreshes the stream and starts at zero.
+Cancel Playback stops a pending attempt. Retry does not change the title match,
+list status or rating. Automatic watched coverage starts a new player session;
+coverage from the interrupted session is not merged into the new one.

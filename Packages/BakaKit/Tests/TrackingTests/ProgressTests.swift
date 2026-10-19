@@ -61,6 +61,20 @@ private func media(_ position: Double, duration: Double = 100, paused: Bool = fa
     #expect(coverage.fraction == 0)
 }
 
+@Test func failedStreamSamplesBreakCoverageWithoutCountingTheGap() {
+    var coverage = WatchedCoverage()
+    coverage.observe(media(0), at: 0)
+    coverage.observe(media(2), at: 2)
+    let failed = PlaybackSnapshot(isPaused: false, isIdle: false,
+                                  position: PlaybackPosition(seconds: 4, duration: 100),
+                                  videoCodec: "h264", hasFailed: true)
+    coverage.observe(failed, at: 4)
+    coverage.observe(media(6), at: 6)
+    coverage.observe(media(8), at: 8)
+    #expect(abs(coverage.fraction - 0.04) < 0.001)
+    #expect(!coverage.isComplete)
+}
+
 @Test func progressNeverSkipsMissingEpisodesOrChangesListStatuses() {
     #expect(EpisodeProgressPolicy.decision(number: 4, current: 3, total: 12, status: .watching) == .advance)
     #expect(EpisodeProgressPolicy.decision(number: 4, current: 4, total: 12, status: .watching) == .alreadyApplied)

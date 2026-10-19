@@ -66,3 +66,13 @@ struct MPVLineBuffer {
         }
     }
 }
+
+/// Retain the media outcome while ordinary IPC replies are consumed.
+struct MPVFileState {
+    private(set) var hasFailed = false
+
+    mutating func receive(_ message: MPVMessage) {
+        if message.event == "start-file" || message.event == "file-loaded" { hasFailed = false }
+        if message.event == "end-file" { hasFailed = message.reason == "error" }
+    }
+}

@@ -181,3 +181,56 @@ still hit the media-open deadline with the final fast profile: end-to-end live
 video startup is not verified as improved. Controlled HLS readiness was about
 0.50 seconds in both profiles in one run, so no HLS speedup percentage is claimed.
 The test playback was stopped and no Shikimori data was changed.
+
+## Retry interrupted playback
+
+Linked episode playback now offers Retry Playback after a media-open timeout,
+rejected media load, or an observed stream failure. The action stops the owned
+player, reloads the exact episode page without using the local page cache and
+requests its current primary manifest through the existing browser flow. The
+native retry label identifies the title, episode and requested resume position.
+Play from Beginning uses the same refresh flow with position zero.
+
+Runtime monitoring retains the last good sampled position even when the failed
+player reports position zero or the latest checkpoint could not be written.
+The retry point exists only in memory; local Continue Watching checkpoints still
+survive normal app restarts. Signed media URLs and browser credentials are not
+part of the retry point. Stop, Cancel Playback, browser-session clearing and
+navigation away invalidate the pending retry. A website user gesture may still
+be required; the UI explains when to start the web player.
+
+The IPC adapter retains end-file error events while reading ordinary replies.
+It also treats EOF clearly before a known duration as interrupted playback:
+remaining time must exceed both five seconds and 0.5 percent of the duration.
+A reported failure cannot remove the resume entry or contribute watched coverage.
+Closing mpv, pausing and reaching the normal end do not request a retry. Each
+retry requires a click; there is no automatic player-restart loop.
+
+The adapter cannot reliably classify a truncated stream if mpv reports normal
+EOF without a usable position and duration, or changes the reported duration to
+match the truncated media. Buffering without a terminal error is not classified
+as a failure. Diagnostic individual-source playback remains unlinked and does
+not offer episode recovery. An unavailable mirror or expired browser login must
+be resolved on the website. SVP setup failures keep their existing instructions.
+
+Tests exercise the actual IPC adapter with a synthetic child process, including
+an error mixed with ordinary replies, repeated snapshots, a fresh load, normal
+EOF and premature EOF. Resume tests verify that failure preserves and flushes the
+last good checkpoint. Recovery destination tests cover season, episode, movie,
+zero position and exclusion of signed or credential-bearing origins.
+
+Reference: [mpv end-file events and EOF properties](https://mpv.io/manual/stable/).
+EOF can also represent a broken connection; the native early-end check is a
+conservative application heuristic, not proof of a particular network error.
+
+On 2026-10-19, the full default checks and the opt-in installed-mpv and synthetic
+HTTP HLS suite passed after these changes. These tests validate local adapter
+behavior; they do not prove recovery from every Kinopub CDN failure.
+
+A live linked Kinopub attempt on the same date reached its media-open timeout.
+Retry Playback appeared for Kakegurui S01E02 at 1:22. Clicking it reloaded the same
+episode page, discovered the primary manifest again and started a new player
+attempt. Cancel Playback stopped that attempt, removed the pending retry and
+retained the 1:22 checkpoint. Successful video recovery on that CDN and sustained
+playback after a real mid-episode interruption remain unverified. No Shikimori
+list entries were changed by the short startup trial.

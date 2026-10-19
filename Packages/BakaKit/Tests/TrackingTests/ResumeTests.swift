@@ -101,3 +101,20 @@ private actor FailingHistoryStore: ResumeHistoryStore {
     #expect(bound.selectingEpisode(itemID: 10, season: 2, episode: 4) == nil)
     #expect(bound.selectingEpisode(itemID: 10, season: 1, episode: 0) == nil)
 }
+
+@Test func failedMediaCannotEraseTheLastCheckpointEvenIfEOFIsAlsoReported() async throws {
+    let store = SwiftDataResumeStore(inMemory: true)
+    let recorder = ResumeRecorder(context: episode(), store: store)
+    let now = Date()
+    try await recorder.capture(snapshot(100), at: now)
+    try await recorder.capture(snapshot(102), at: now.addingTimeInterval(2))
+    let failed = PlaybackSnapshot(isPaused: false, isIdle: false,
+                                  position: PlaybackPosition(seconds: 0, duration: 1200),
+                                  videoCodec: "h264", hasEnded: true, hasFailed: true)
+    #expect(try await !recorder.capture(failed, force: true))
+    try await recorder.flush()
+    #expect(try await store.entries().first?.position.seconds == 102)
+    let resumed = ResumeRecorder(context: episode(), store: store)
+    try await resumed.capture(snapshot(103), at: now.addingTimeInterval(3), force: true)
+    #expect(try await store.entries().first?.position.seconds == 103)
+}
