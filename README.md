@@ -19,100 +19,97 @@ General-purpose fixes can be proposed upstream.
 
 Copyright (c) 2020 JustRoxy
 
-## Development
+## What you need
 
-Requirements: macOS 26+, Xcode 26+ with Swift 6.2+, .NET SDK 10.0.203
-(or a newer patch), and Python 3 for smoke checks
-The initial build has been verified on Apple Silicon; Intel has not been tested and will never be
+- macOS 26 or later. The Universal download includes Apple Silicon and Intel builds;
+  physical Intel Macs have not been tested.
+- [.NET 10 Runtime](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) for Shikimori features.
+  Under **Run apps**, choose **.NET Runtime** for macOS: Arm64 for Apple Silicon or x64 for Intel.
+- [mpv](https://mpv.io/installation/) for video playback.
+- A Kinopub account with access to the titles you want to watch.
+- Optional: [SVP for Mac](https://www.svp-team.com/docs/mac/) for smoother playback.
+  SVP also needs an mpv installation with VapourSynth support; follow its Mac setup guide.
 
-Open `BakaThreesome.xcodeproj` in Xcode and run the BakaThreesome scheme.
-For C# development, open `BakaThreesome.slnx` in Rider.
+## Install
 
-From the project root:
+1. Open the [latest release](https://github.com/F3T1W/ShikiThreesome/releases/latest)
+   and download the **Universal DMG** from Assets.
+2. Open the DMG and drag **BakaThreesome** into **Applications**.
+3. Eject the DMG, then launch BakaThreesome from Applications.
+4. Open **Diagnostics** and choose **Check Player** to check your mpv installation.
 
-```sh
-./scripts/run.sh       # Build both stacks and open the app
-./scripts/build.sh     # Build both stacks
-./scripts/check.sh     # Check language, Swift contracts, and the actual helper
-```
+The current preview is not notarized and may be blocked by macOS. Read
+[Apple's guide to opening downloaded apps](https://support.apple.com/en-us/102445)
+if this happens. Only allow the app if you trust its source.
 
-Built application: `artifacts/DerivedData/Build/Products/Debug/BakaThreesome.app`
+## Connect Shikimori
 
-[Architecture and module boundaries](docs/architecture.md).
+Shikimori lets you browse your lists, track watched episodes, and rate anime.
+It requires a one-time application registration:
 
-## Current playback status
+1. Open **Settings > Accounts** with the gear button or **Command-comma**.
+2. Choose **Register Application** and sign in to Shikimori. Use the name
+   `BakaThreesome`, redirect URI `urn:ietf:wg:oauth:2.0:oob`, and permission `user_rates`.
+3. Copy the resulting **Client ID** and **Client secret** into the app.
+4. Choose **Authorize in Browser** and approve access on Shikimori.
+5. Copy the authorization code back into the app and choose **Connect Shikimori**.
 
-Diagnostics verifies the installed mpv version, VapourSynth availability, process
-launch, and JSON IPC control. The playback adapter supports loading, pause, seek,
-and position snapshots. Kinopub streams and active SVP interpolation are not
-verified by this check.
+Your account details are saved in macOS Keychain. If macOS asks BakaThreesome for
+permission to access the saved account, review and approve the request yourself.
 
-[Playback foundation and real-player checks](docs/playback.md).
+Open **Watchlist** to choose a list such as Watching, Planned, or Completed.
+Use **Catalog** to find anime. Open a title to change its list, watched episode
+count, or rating, then save your changes.
 
-## Shikimori catalog and tracking
+## Watch an episode
 
-Catalog supports live public search. Connect Shikimori in Settings > Accounts to
-browse status lists, add titles, update watched episodes, and set your rating.
-Credentials and session tokens are saved in Keychain. Register your Shikimori
-application through its application page.
-The .NET helper is embedded by Xcode; the development app still needs a local
-.NET 10 runtime. Live sign-in and writes require local account verification.
+1. Open **Kinopub** in the sidebar and sign in on the website inside the app.
+   If you use another Kinopub mirror, enter its address above the page and choose **Open**.
+2. In **Watchlist** or **Catalog**, choose **Open in Kinopub** beside an anime.
+   If asked, select the correct title and season. The app remembers your choice.
+3. Select an episode and start its web player. You can pause it once it loads.
+4. Turn **SVP** off if you do not have it installed, or leave it on to use interpolation.
+5. Choose **Play Episode in mpv**. The video opens in a separate player window.
 
-[Shikimori setup, behavior and verification](docs/shikimori-integration.md).
+Use the **Audio** and **Subtitles** controls to choose tracks. The default preference
+is Japanese audio with Russian subtitles, when available. With SVP enabled,
+**SVP: Active** confirms interpolation is running.
 
-## Kinopub website prototype
+## Resume and track progress
 
-Open Kinopub in the sidebar to sign in directly on the website.
-The prototype discovers the primary HLS manifest from the video source element
-and starts it through Play Episode in mpv. One live authenticated episode was
-verified with simultaneous H.264 video and AAC audio. Browser cookies stay in
-WebKit; playback receives the signed URL and browser request headers. Long-session
-stability and cookie-dependent sources remain unverified.
+Open **Continue Watching** and choose **Continue** to resume your latest episode.
+Positions are saved on this Mac. **Play from Beginning** starts the episode over.
 
-The SVP switch starts installed SVP Manager and advertises the app-owned player.
-Live status confirms its filter and measured input/output frame rates. Actual
-interpolation was verified on generated local video at 24 → 60 fps and a live
-Kinopub HLS episode at 23.98 → 59.94 fps. Global mpv/SVP settings are left unchanged.
+Automatic watched-episode updates are optional: enable them in **Settings > Progress**
+and confirm the episode number in Kinopub. Ratings and list statuses are changed manually.
 
-[Browser flow, limitations and verification](docs/kinopub-browser.md).
+## Update
 
-[Getting started: Shikimori sign-in and episode playback](docs/getting-started.md).
+When a new version is available, a download icon appears beside Settings.
+Click it and follow the installation prompts to update and restart the app.
+You can also choose **BakaThreesome > Check for Updates…** from the menu bar,
+or **Check for Updates…** in **Settings > About**.
 
-## Open Shikimori titles in Kinopub
+To update manually, download the latest DMG, quit the app, and replace the copy
+in Applications. Saved accounts, matches, and playback positions are kept.
 
-Watchlist and Catalog include Open in Kinopub. Matching tries Shikimori's title
-aliases, verifies available metadata, and opens a confident single-season result
-or asks you to choose a title and season. Confirmed links are saved locally;
-Change Kinopub Match replaces a saved destination. An alternative-title search
-and manual title URL are available when needed. Google lookup opens in the browser;
-automatic extraction of Google aliases is not implemented yet.
+## If something does not work
 
-[Matching behavior, setup and checks](docs/title-matching.md).
+- **mpv is missing:** install it, then run **Diagnostics > Check Player** again.
+- **The episode button is missing:** start the web player and choose **Rescan**.
+- **Playback was interrupted:** choose **Retry Playback** in Kinopub.
+- **The title match is wrong:** use **Change Kinopub Match** from the title's context menu.
+- **Shikimori did not reconnect:** use **Retry Restoring Session** in Accounts.
+- **Updates cannot be checked:** try again later or use the manual DMG download.
 
-## Continue Watching
+For help, [open an issue](https://github.com/F3T1W/ShikiThreesome/issues).
+Include your macOS version and what happened. Keep passwords, account secrets,
+and private playback links out of reports.
 
-Linked Kinopub episodes now save local playback positions with SwiftData. Choose
-an episode using the native picker, play its primary stream in mpv, then use
-Continue Watching after stopping or restarting the app. Continue reopens the
-same episode and retrieves its current stream before restoring position. A web
-player gesture may be needed by the website. Play from Beginning is also available.
-The native previous/next buttons start discovered adjacent episodes in the linked
-season. Optional Auto-play next episode offers the next episode after EOF with an
-eight-second countdown, Play Now and Cancel; it is off by default.
-Retry Playback refreshes a failed linked episode stream at the last known position;
-normal completion and closing the player do not trigger recovery.
-Automatic watched counts are available as an opt-in feature in Settings > Progress;
-confirm episode numbering in Kinopub first. Ratings and list statuses remain manual.
+## License
 
-[Automatic progress, pending updates and limitations](docs/automatic-progress.md).
+BakaThreesome's original code is available under the [MIT License](LICENSE).
+Third-party components retain their own licenses and notices.
 
-[Episode identity, persistence and checks](docs/continue-watching.md).
-
-## Anime artwork
-
-Catalog, Watchlist and Continue Watching display adaptive poster grids with titles
-below the artwork. Poster metadata is fetched in batches through ShikimoriSharp
-and GraphQL; images share a cache, and missing artwork uses a placeholder.
-Details, Kinopub matching and resume actions remain on the cards and context menus.
-
-[Signed GitHub release updates and updater setup](docs/app-updates.md).
+For build instructions and implementation details, see
+[Development and implementation](docs/development.md).
