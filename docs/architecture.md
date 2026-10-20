@@ -50,6 +50,13 @@ Reserve stdout for the protocol. Capabilities cover handshake, public catalog,
 anime details, OAuth tokens/profile and signed-in list reads/writes.
 Never pass secrets as process arguments or write them to logs.
 
+Wire property names are explicit, including the case-sensitive `animeID` and
+`imageURL` fields expected by Swift. Response DTOs live separately from the adapter's
+operation handlers. Scoped JetBrains annotations identify serialization-only usage
+for Rider without disabling unused-member analysis across the solution. The shared
+`bridge-v1.json` test fixture is checked by the .NET serializer and decoded by Swift
+to catch cross-language contract drift.
+
 The serial Swift transport owns and bounds the helper lifecycle. Xcode embeds
 the helper and dependency/license files; the local .NET 10 runtime is still
 required. Self-contained runtime distribution is not implemented. Swift account

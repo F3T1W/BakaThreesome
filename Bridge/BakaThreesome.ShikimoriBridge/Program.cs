@@ -14,7 +14,8 @@ while (await Console.In.ReadLineAsync() is { } line)
     string? id = null;
     try
     {
-        if (line.Length > 1_048_576) throw new ArgumentException();
+        if (line.Length > 1_048_576)
+            throw new ArgumentException("The request exceeds the maximum length.");
         var request = JsonSerializer.Deserialize<BridgeRequest>(line, options);
         id = request?.Id;
         response = request switch
@@ -24,9 +25,18 @@ while (await Console.In.ReadLineAsync() is { } line)
             _ => new BridgeResponse(Protocol.Version, id, await adapter.Execute(request))
         };
     }
-    catch (JsonException) { response = Failure(id, "invalid_json", "Malformed JSON request."); }
-    catch (NotSupportedException) { response = Failure(id, "unknown_method", "Method is not available."); }
-    catch (ArgumentException) { response = Failure(id, "invalid_parameters", "Check the supplied values."); }
+    catch (JsonException)
+    {
+        response = Failure(id, "invalid_json", "Malformed JSON request.");
+    }
+    catch (NotSupportedException)
+    {
+        response = Failure(id, "unknown_method", "Method is not available.");
+    }
+    catch (ArgumentException)
+    {
+        response = Failure(id, "invalid_parameters", "Check the supplied values.");
+    }
     catch (ShikimoriRequestException error)
     {
         response = error.StatusCode switch
@@ -38,12 +48,26 @@ while (await Console.In.ReadLineAsync() is { } line)
             _ => Failure(id, "service_error", "Shikimori could not complete the request.")
         };
     }
-    catch (OperationCanceledException) { response = Failure(id, "timeout", "Shikimori did not respond in time."); }
-    catch (HttpRequestException) { response = Failure(id, "network_error", "Shikimori could not be reached."); }
-    catch (Exception) { response = Failure(id, "request_failed", "The request could not be completed."); }
+    catch (OperationCanceledException)
+    {
+        response = Failure(id, "timeout", "Shikimori did not respond in time.");
+    }
+    catch (HttpRequestException)
+    {
+        response = Failure(id, "network_error", "Shikimori could not be reached.");
+    }
+    catch (Exception)
+    {
+        response = Failure(id, "request_failed", "The request could not be completed.");
+    }
+
     await Console.Out.WriteLineAsync(JsonSerializer.Serialize(response, options));
     await Console.Out.FlushAsync();
 }
 
-static BridgeResponse Failure(string? id, string code, string message) =>
-    new(Protocol.Version, id, Error: new BridgeError(code, message));
+return;
+
+static BridgeResponse Failure(string? id, string code, string message)
+{
+    return new BridgeResponse(Protocol.Version, id, Error: new BridgeError(code, message));
+}

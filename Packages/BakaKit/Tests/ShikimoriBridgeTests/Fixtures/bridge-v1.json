@@ -1,0 +1,94 @@
+{
+  "catalog": [
+    {
+      "id": 1,
+      "title": "Example",
+      "episodes": 12,
+      "kind": "tv",
+      "communityScore": 8.25
+    }
+  ],
+  "posters": [
+    {
+      "animeID": 1,
+      "imageURL": "https://shikimori.io/uploads/poster/animes/1/main.webp"
+    },
+    {
+      "animeID": 2,
+      "imageURL": null
+    },
+    {
+      "animeID": 3,
+      "imageURL": null
+    }
+  ],
+  "details": {
+    "anime": {
+      "id": 1,
+      "title": "Example",
+      "episodes": 12,
+      "kind": "tv",
+      "communityScore": 8.25
+    },
+    "rate": {
+      "id": 7000000000,
+      "animeID": 1,
+      "status": "on_hold",
+      "episodes": 3,
+      "score": 8
+    },
+    "identity": {
+      "id": 1,
+      "titles": [
+        "Example",
+        "Alternative Title"
+      ],
+      "year": 2002,
+      "kind": "tv"
+    }
+  },
+  "list": [
+    {
+      "anime": {
+        "id": 1,
+        "title": "Example",
+        "episodes": 12,
+        "kind": "tv",
+        "communityScore": 8.25
+      },
+      "rate": {
+        "id": 7000000000,
+        "animeID": 1,
+        "status": "on_hold",
+        "episodes": 3,
+        "score": 8
+      }
+    }
+  ],
+  "rate": {
+    "id": 7000000000,
+    "animeID": 1,
+    "status": "on_hold",
+    "episodes": 3,
+    "score": 8
+  },
+  "profile": {
+    "id": 42,
+    "nickname": "Example"
+  },
+  "tokens": {
+    "accessToken": "synthetic-access",
+    "refreshToken": "synthetic-refresh",
+    "expiresAt": 2000000000
+  },
+  "handshake": {
+    "name": "BakaThreesome.ShikimoriBridge",
+    "capabilities": [
+      "handshake"
+    ]
+  },
+  "error": {
+    "code": "unauthorized",
+    "message": "Sign in to Shikimori again."
+  }
+}

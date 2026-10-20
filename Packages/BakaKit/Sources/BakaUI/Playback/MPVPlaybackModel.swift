@@ -92,39 +92,31 @@ final class MPVPlaybackModel {
                     deadline = ContinuousClock.now.advanced(by: .seconds(20))
                     continue
                 }
-                if !state.isIdle, state.videoCodec != nil || state.audioCodec != nil {
-                    if episode != nil, state.videoCodec == nil {
-                        // A linked episode must wait for video, even if audio becomes ready first.
-                    } else if activeSource.needsCompatibilityFallback && episode != nil && state.audioCodec == nil {
-                        // Give optimized startup a short audio readiness window before the compatibility retry.
-                    } else if source.audioURL != nil, state.audioCodec == nil {
-                        // Separate audio can arrive after the video track.
-                    } else {
-                        if let episode, episode.isValid, state.videoCodec != nil {
-                            activeEpisode = episode
-                            lastPosition = source.startSeconds ?? 0
-                            await progress.begin(episode)
-                            recorder = ResumeRecorder(context: episode, store: history.store)
-                            history.activeEpisodeID = episode.id
-                        }
-                        status = state.videoCodec != nil && state.audioCodec != nil
-                            ? "mpv is playing video and audio."
-                            : (state.videoCodec != nil ? "mpv is playing video only." : "mpv is playing audio only.")
-                        if let episode, recorder != nil { status += " \(episode.title) · \(episode.label)" }
-                        else { status += " Playback progress is not linked to a Shikimori episode." }
-                        let total = requested.duration(to: .now).secondsValue
-                        let process = requested.duration(to: playerReady).secondsValue
-                        let media = playerReady.duration(to: mediaReady).secondsValue
-                        status += String(format: " Ready in %.2f s.", total)
-                        Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
-                            .notice("Startup seconds: player=\(process, privacy: .public), media=\(media, privacy: .public), ready=\(total, privacy: .public), compatibilityRetry=\(retriedProbe && source.needsCompatibilityFallback, privacy: .public)")
-                        await capture(state)
-                        await opening.connect(player: player, chapters: player)
-                        opening.observe(state)
-                        await tracks.connect(player)
-                        startMonitoring(player)
-                        return
+                if PlaybackStartupReadiness.canBegin(state, source: activeSource, linkedEpisode: episode != nil) {
+                    if let episode, episode.isValid, state.videoCodec != nil {
+                        activeEpisode = episode
+                        lastPosition = source.startSeconds ?? 0
+                        await progress.begin(episode)
+                        recorder = ResumeRecorder(context: episode, store: history.store)
+                        history.activeEpisodeID = episode.id
                     }
+                    status = state.videoCodec != nil && state.audioCodec != nil
+                        ? "mpv is playing video and audio."
+                        : (state.videoCodec != nil ? "mpv is playing video only." : "mpv is playing audio only.")
+                    if let episode, recorder != nil { status += " \(episode.title) · \(episode.label)" }
+                    else { status += " Playback progress is not linked to a Shikimori episode." }
+                    let total = requested.duration(to: .now).secondsValue
+                    let process = requested.duration(to: playerReady).secondsValue
+                    let media = playerReady.duration(to: mediaReady).secondsValue
+                    status += String(format: " Ready in %.2f s.", total)
+                    Logger(subsystem: "dev.bakathreesome", category: "PlaybackStartup")
+                        .notice("Startup seconds: player=\(process, privacy: .public), media=\(media, privacy: .public), ready=\(total, privacy: .public), compatibilityRetry=\(retriedProbe && source.needsCompatibilityFallback, privacy: .public)")
+                    await capture(state)
+                    await opening.connect(player: player, chapters: player)
+                    opening.observe(state)
+                    await tracks.connect(player)
+                    startMonitoring(player)
+                    return
                 }
                 guard ContinuousClock.now < deadline else { throw PlaybackError.timedOut }
                 try await Task.sleep(for: .milliseconds(250))
@@ -183,11 +175,15 @@ final class MPVPlaybackModel {
         if let engine, let state = try? await engine.snapshot() { await capture(state, force: true) }
         await flush()
         await engine?.stop()
+        await clearPlaybackSession()
+        if !status.isEmpty { status = "Playback stopped." }
+    }
+
+    private func clearPlaybackSession() async {
         engine = nil; recorder = nil; activeEpisode = nil
         await progress.begin(nil)
         history.activeEpisodeID = nil
         svpStatus = "SVP: Off"
-        if !status.isEmpty { status = "Playback stopped." }
     }
 
     private func capture(_ state: PlaybackSnapshot, force: Bool = false) async {
@@ -255,10 +251,7 @@ final class MPVPlaybackModel {
                 self?.tracks.disconnect()
                 await self?.flush()
                 await player.stop()
-                self?.engine = nil; self?.recorder = nil; self?.activeEpisode = nil
-                await self?.progress.begin(nil)
-                self?.history.activeEpisodeID = nil
-                self?.svpStatus = "SVP: Off"
+                await self?.clearPlaybackSession()
                 self?.status = streamFailed
                     ? "Playback was interrupted. Retry playback at the last known position."
                     : "Player closed. The last sampled position was saved if storage was available."

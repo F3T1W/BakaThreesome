@@ -19,7 +19,10 @@ let package = Package(
             resources: [.process("Resources")]
         ),
         .testTarget(name: "BakaUITests", dependencies: ["BakaUI", "ShikimoriBridge", "Catalog", "Accounts", "Playback", "Tracking", "Kinopub"]),
-        .testTarget(name: "ShikimoriBridgeTests", dependencies: ["ShikimoriBridge", "Accounts", "Tracking"]),
+        .testTarget(
+            name: "ShikimoriBridgeTests", dependencies: ["ShikimoriBridge", "Accounts", "Catalog", "Tracking"],
+            resources: [.copy("Fixtures")]
+        ),
         .testTarget(name: "PlaybackTests", dependencies: ["Playback", "Tracking", "Catalog"]),
         .testTarget(name: "KinopubTests", dependencies: ["Kinopub"]),
         .testTarget(name: "AccountsTests", dependencies: ["Accounts"]),

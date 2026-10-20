@@ -2,5 +2,7 @@
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../BakaThreesome.ShikimoriBridge/BakaThreesome.ShikimoriBridge.csproj" />
+    <Content Include="../../Packages/BakaKit/Tests/ShikimoriBridgeTests/Fixtures/bridge-v1.json"
+             Link="bridge-v1.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

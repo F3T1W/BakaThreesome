@@ -10,4 +10,7 @@
     <Content Include="../../Vendor/ShikimoriSharp/LICENSE" Link="ShikimoriSharp.LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../docs/third-party-notices.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="JetBrains.Annotations" Version="2025.2.4" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
 </Project>

@@ -1,1 +1,5 @@
-<Project Sdk="Microsoft.NET.Sdk" />
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="JetBrains.Annotations" Version="2025.2.4" PrivateAssets="all" ExcludeAssets="runtime" />
+  </ItemGroup>
+</Project>

@@ -10,122 +10,193 @@ using ShikimoriSharp.Settings;
 
 namespace BakaThreesome.ShikimoriBridge;
 
-public sealed class ShikimoriAdapter
+public sealed class ShikimoriAdapter(HttpClient? httpClient = null)
 {
-    public static readonly string[] Capabilities =
-    ["handshake", "catalog.posters", "catalog.search", "anime.details", "account.exchange", "account.refresh", "account.whoami", "watchlist.list", "watchlist.save", "watchlist.progress"];
+    private static readonly string[] Capabilities =
+    [
+        "handshake", "catalog.posters", "catalog.search", "anime.details", "account.exchange", "account.refresh",
+        "account.whoami", "watchlist.list", "watchlist.save", "watchlist.progress"
+    ];
 
-    private readonly ShikimoriClient client;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    public ShikimoriAdapter(HttpClient? httpClient = null)
-    {
-        client = new ShikimoriClient(NullLogger.Instance, new ClientSettings("BakaThreesome", "", ""), httpClient);
-    }
+    private readonly ShikimoriClient _client = new(NullLogger.Instance, new ClientSettings("BakaThreesome", "", ""),
+        httpClient);
 
     public async Task<object> Execute(BridgeRequest request)
     {
         var p = request.Parameters.ValueKind == JsonValueKind.Object
-            ? request.Parameters.Deserialize<Parameters>(Json) ?? new Parameters() : new Parameters();
-        var token = string.IsNullOrEmpty(p.AccessToken) ? null : new AccessToken
+            ? request.Parameters.Deserialize<Parameters>(Json) ?? new Parameters()
+            : new Parameters();
+        var token = string.IsNullOrEmpty(p.AccessToken)
+            ? null
+            : new AccessToken
+            {
+                Access_Token = p.AccessToken, Scope = "user_rates", TokenType = "Bearer"
+            };
+        return request.Method switch
         {
-            Access_Token = p.AccessToken, Scope = "user_rates", TokenType = "Bearer"
+            "handshake" => new HandshakeResult("BakaThreesome.ShikimoriBridge", Capabilities),
+            "catalog.posters" => await new ShikimoriPosters(_client).Load(p.AnimeIDs),
+            "catalog.search" => await Search(p, token),
+            "anime.details" => await Details(p, token),
+            "account.whoami" => await Profile(token),
+            "account.exchange" => await Authorize(p, false),
+            "account.refresh" => await Authorize(p, true),
+            "watchlist.list" => await List(p, token),
+            "watchlist.progress" => await AdvanceProgress(p, token),
+            "watchlist.save" => await Save(p, token),
+            _ => throw new NotSupportedException()
         };
-        switch (request.Method)
-        {
-            case "handshake": return new HandshakeResult("BakaThreesome.ShikimoriBridge", Capabilities);
-            case "catalog.posters":
-                return await new ShikimoriPosters(client).Load(p.AnimeIDs);
-            case "catalog.search":
-                return (await client.Animes.GetAnime(new AnimeRequestSettings
-                {
-                    search = p.Query, page = Page(p.Page), limit = 30, order = Order.ranked
-                }, token)).Select(Summary).ToArray();
-            case "anime.details":
-                Positive(p.AnimeID);
-                var detail = await client.Animes.GetAnime(p.AnimeID, token);
-                return new AnimeDetails(Summary(detail), detail.UserRate is { } rate ? Rate(rate, p.AnimeID) : null,
-                    new AnimeIdentity(detail.Id,
-                        new[] { detail.Name, detail.Russian, detail.LicenseNameRu }
-                            .Concat(detail.English ?? []).Concat(detail.Japanese ?? []).Concat(detail.Synonyms ?? [])
-                            .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct().ToArray(),
-                        detail.AiredOn?.Year, detail.Kind ?? "unknown"));
-            case "account.whoami":
-                Required(token);
-                var user = await client.Users.WhoAmI(token);
-                return new UserProfile(user.Id, user.Nickname);
-            case "account.exchange":
-            case "account.refresh":
-                if (string.IsNullOrWhiteSpace(p.ClientID) || string.IsNullOrWhiteSpace(p.ClientSecret))
-                    throw new ArgumentException("Client credentials are required.");
-                var manager = new AuthorizationManager(
-                    new ClientSettings("BakaThreesome", p.ClientID, p.ClientSecret),
-                    (url, content) => client.Client.RequestForm<AccessToken>(url, content, method: "POST"));
-                AccessToken result;
-                if (request.Method == "account.exchange")
-                {
-                    Required(p.Code);
-                    result = await manager.GetAccessToken(p.Code!);
-                }
-                else
-                {
-                    Required(p.RefreshToken);
-                    result = await manager.RefreshAccessToken(new AccessToken { RefreshToken = p.RefreshToken });
-                }
-                if (string.IsNullOrEmpty(result.Access_Token) || string.IsNullOrEmpty(result.RefreshToken)
-                    || result.ExpiresIn <= 0) throw new InvalidDataException();
-                return new TokenPair(result.Access_Token, result.RefreshToken,
-                    DateTimeOffset.UtcNow.ToUnixTimeSeconds() + (long)result.ExpiresIn);
-            case "watchlist.list":
-                Required(token);
-                Positive(p.UserID);
-                MyList? status = p.Status == null ? null : Status(p.Status);
-                return (await client.Users.GetUserAnimeRates(p.UserID,
-                    new AnimeRateRequestSettings { limit = 50, page = Page(p.Page), status = status }, token))
-                    .Where(entry => entry.Anime != null)
-                    .Select(entry => new ListEntry(Summary(entry.Anime), Rate(entry, entry.Anime.Id))).ToArray();
-            case "watchlist.progress":
-                Required(token);
-                Positive(p.AnimeID);
-                if (p.RateID is not { } progressRateID) throw new ArgumentException();
-                Positive(progressRateID);
-                if (p.Episodes is < 1 or > 100000) throw new ArgumentException();
-                var progress = await client.UserRates.EditUserRate(progressRateID,
-                    new UserRateEditSettings(new UserRateBase { episodes = p.Episodes }), token);
-                return Rate(progress, p.AnimeID);
-            case "watchlist.save":
-                Required(token);
-                Positive(p.UserID);
-                Positive(p.AnimeID);
-                if (p.Episodes is < 0 or > 100000 || p.Score is < 0 or > 10) throw new ArgumentException();
-                var state = Status(p.Status);
-                var values = new UserRateContent(p.UserID, p.AnimeID, TargetType.Anime)
-                    { episodes = p.Episodes, score = p.Score, status = state };
-                UserRate updated;
-                if (p.RateID is { } id)
-                {
-                    Positive(id);
-                    updated = await client.UserRates.EditUserRate(id, new UserRateEditSettings(values), token);
-                }
-                else
-                    updated = await client.UserRates.NewUserRate(new NewUserRateSettings(values), token);
-                return Rate(updated, p.AnimeID);
-            default: throw new NotSupportedException();
-        }
     }
 
-    private static int Page(int page) => page is >= 1 and <= 1000 ? page : throw new ArgumentException();
-    private static void Positive(long value) { if (value <= 0) throw new ArgumentException(); }
-    private static void Required(object? value) { if (value == null) throw new ArgumentException(); }
-    private static MyList Status(string? value) => Enum.TryParse<MyList>(value, out var result)
-        && Enum.IsDefined(result) ? result : throw new ArgumentException();
+    private async Task<AnimeSummary[]> Search(Parameters p, AccessToken? token)
+    {
+        return
+        [
+            .. (await _client.Animes.GetAnime(new AnimeRequestSettings
+            {
+                search = p.Query, page = ValidatePage(p.Page), limit = 30, order = Order.ranked
+            }, token)).Select(Summary)
+        ];
+    }
 
-    private static AnimeSummary Summary(AnimeMangaBase anime) => new(
-        anime.Id, anime.Name ?? "Untitled", anime is Anime a ? a.Episodes : ((AnimeID)anime).Episodes,
-        anime.Kind ?? "unknown",
-        double.TryParse(anime.Score, CultureInfo.InvariantCulture, out var score) ? score : null);
-    private static UserRateSummary Rate(PublicUserRate rate, long animeID) => new(
-        rate.Id, animeID, rate.Status, rate.Episodes ?? 0, rate.Score);
+    private async Task<AnimeDetails> Details(Parameters p, AccessToken? token)
+    {
+        Positive(p.AnimeId, nameof(p.AnimeId));
+        var detail = await _client.Animes.GetAnime(p.AnimeId, token);
+        return new AnimeDetails(Summary(detail), detail.UserRate is { } rate ? Rate(rate, p.AnimeId) : null,
+            new AnimeIdentity(detail.Id,
+                [
+                    .. new[] { detail.Name, detail.Russian, detail.LicenseNameRu }
+                        .Concat(detail.English ?? []).Concat(detail.Japanese ?? [])
+                        .Concat(detail.Synonyms ?? [])
+                        .Where(value => !string.IsNullOrWhiteSpace(value)).Distinct()
+                ],
+                detail.AiredOn?.Year, detail.Kind ?? "unknown"));
+    }
+
+    private async Task<UserProfile> Profile(AccessToken? token)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        var user = await _client.Users.WhoAmI(token);
+        return new UserProfile(user.Id, user.Nickname);
+    }
+
+    private async Task<TokenPair> Authorize(Parameters p, bool refresh)
+    {
+        if (string.IsNullOrWhiteSpace(p.ClientId) || string.IsNullOrWhiteSpace(p.ClientSecret))
+            throw new ArgumentException("Client credentials are required.");
+        var manager = new AuthorizationManager(
+            new ClientSettings("BakaThreesome", p.ClientId, p.ClientSecret),
+            (url, content) => _client.Client.RequestForm<AccessToken>(url, content, method: "POST"));
+        AccessToken result;
+        if (!refresh)
+        {
+            ArgumentNullException.ThrowIfNull(p.Code);
+            result = await manager.GetAccessToken(p.Code);
+        }
+        else
+        {
+            ArgumentNullException.ThrowIfNull(p.RefreshToken);
+            result = await manager.RefreshAccessToken(new AccessToken { RefreshToken = p.RefreshToken });
+        }
+
+        if (string.IsNullOrEmpty(result.Access_Token) || string.IsNullOrEmpty(result.RefreshToken)
+                                                      || result.ExpiresIn <= 0)
+            throw new InvalidDataException();
+        return new TokenPair(result.Access_Token, result.RefreshToken,
+            DateTimeOffset.UtcNow.ToUnixTimeSeconds() + result.ExpiresIn);
+    }
+
+    private async Task<ListEntry[]> List(Parameters p, AccessToken? token)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        Positive(p.UserId, nameof(p.UserId));
+        MyList? status = p.Status == null ? null : ParseStatus(p.Status);
+        return
+        [
+            .. (await _client.Users.GetUserAnimeRates(p.UserId,
+                new AnimeRateRequestSettings { limit = 50, page = ValidatePage(p.Page), status = status }, token))
+            .Where(entry => entry.Anime != null)
+            .Select(entry => new ListEntry(Summary(entry.Anime), Rate(entry, entry.Anime.Id)))
+        ];
+    }
+
+    private async Task<UserRateSummary> AdvanceProgress(Parameters p, AccessToken? token)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        Positive(p.AnimeId, nameof(p.AnimeId));
+        if (p.RateId is not { } progressRateId)
+            throw new ArgumentException("A rate ID is required.", nameof(p));
+        Positive(progressRateId, nameof(p.RateId));
+        ValidateRange(p.Episodes, 1, 100000, nameof(p.Episodes));
+        var progress = await _client.UserRates.EditUserRate(progressRateId,
+            new UserRateEditSettings(new UserRateBase { episodes = p.Episodes }), token);
+        return Rate(progress, p.AnimeId);
+    }
+
+    private async Task<UserRateSummary> Save(Parameters p, AccessToken? token)
+    {
+        ArgumentNullException.ThrowIfNull(token);
+        Positive(p.UserId, nameof(p.UserId));
+        Positive(p.AnimeId, nameof(p.AnimeId));
+        ValidateRange(p.Episodes, 0, 100000, nameof(p.Episodes));
+        ValidateRange(p.Score, 0, 10, nameof(p.Score));
+        var state = ParseStatus(p.Status);
+        var values = new UserRateContent(p.UserId, p.AnimeId, TargetType.Anime)
+            { episodes = p.Episodes, score = p.Score, status = state };
+        UserRate updated;
+        if (p.RateId is { } id)
+        {
+            Positive(id, nameof(p.RateId));
+            updated = await _client.UserRates.EditUserRate(id, new UserRateEditSettings(values), token);
+        }
+        else
+        {
+            updated = await _client.UserRates.NewUserRate(new NewUserRateSettings(values), token);
+        }
+
+        return Rate(updated, p.AnimeId);
+    }
+
+    private static int ValidatePage(int page)
+    {
+        ValidateRange(page, 1, 1000, nameof(page));
+        return page;
+    }
+
+    private static void Positive(long value, string parameterName)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value, parameterName);
+    }
+
+    private static void ValidateRange(int value, int minimum, int maximum, string parameterName)
+    {
+        if (value < minimum || value > maximum)
+            throw new ArgumentOutOfRangeException(parameterName, "The value is outside the supported range.");
+    }
+
+    private static MyList ParseStatus(string? value)
+    {
+        return Enum.TryParse<MyList>(value, out var result) && Enum.IsDefined(result)
+            ? result
+            : throw new ArgumentException("A supported watch status is required.", nameof(value));
+    }
+
+    private static AnimeSummary Summary(AnimeMangaBase anime)
+    {
+        return new AnimeSummary(
+            anime.Id, anime.Name ?? "Untitled", anime is Anime a ? a.Episodes : ((AnimeID)anime).Episodes,
+            anime.Kind ?? "unknown",
+            double.TryParse(anime.Score, CultureInfo.InvariantCulture, out var score) ? score : null);
+    }
+
+    private static UserRateSummary Rate(PublicUserRate rate, long animeId)
+    {
+        return new UserRateSummary(
+            rate.Id, animeId, rate.Status, rate.Episodes ?? 0, rate.Score);
+    }
 
     private sealed class Parameters
     {
@@ -133,23 +204,15 @@ public sealed class ShikimoriAdapter
         public string? Query { get; init; }
         public int Page { get; init; } = 1;
         public string? AccessToken { get; init; }
-        public string? ClientID { get; init; }
+        public string? ClientId { get; init; }
         public string? ClientSecret { get; init; }
         public string? Code { get; init; }
         public string? RefreshToken { get; init; }
-        public long AnimeID { get; init; }
-        public long UserID { get; init; }
-        public long? RateID { get; init; }
+        public long AnimeId { get; init; }
+        public long UserId { get; init; }
+        public long? RateId { get; init; }
         public string? Status { get; init; }
         public int Episodes { get; init; }
         public int Score { get; init; }
     }
 }
-
-public sealed record AnimeSummary(long Id, string Title, long Episodes, string Kind, double? CommunityScore);
-public sealed record UserRateSummary(long Id, long AnimeID, string Status, long Episodes, long Score);
-public sealed record AnimeIdentity(long Id, string[] Titles, int? Year, string Kind);
-public sealed record AnimeDetails(AnimeSummary Anime, UserRateSummary? Rate, AnimeIdentity Identity);
-public sealed record ListEntry(AnimeSummary Anime, UserRateSummary Rate);
-public sealed record UserProfile(long Id, string Nickname);
-public sealed record TokenPair(string AccessToken, string RefreshToken, long ExpiresAt);
