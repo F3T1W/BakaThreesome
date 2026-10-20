@@ -23,6 +23,8 @@ public struct AppSettingsView: View {
                         .font(.title2.bold())
                     Text("A native anime streaming client")
                         .foregroundStyle(.secondary)
+                    CheckForUpdatesButton(model: services.updates)
+                        .buttonStyle(.glass)
                     HStack(spacing: 0) {
                         Text("Shikimori integration is based on ")
                         Link(

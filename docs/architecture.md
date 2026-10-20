@@ -10,6 +10,7 @@ mpv process controlled through JSON IPC.
 - `macOS/`: application entry point and dependency composition.
 - `Packages/BakaKit/`: a local Swift Package with separate targets:
   - `BakaUI`: native screens and presentation state.
+  - `Updates`: Sparkle adapter and observable update state, with passive toolbar reminders and signed GitHub release feeds.
   - `Accounts`: credential storage contracts and macOS Keychain access.
   - `Kinopub`: browser media discovery, catalog models/port and a signed-in WebKit search adapter.
   - `Catalog`: Shikimori catalog models.
@@ -106,3 +107,5 @@ metadata through the existing ShikimoriSharp transport in batches of at most 50.
 A shared BakaUI artwork model coalesces requests and owns metadata, decoded-image
 and HTTP caches. The same thumbnail and adaptive grid views serve Catalog, Watchlist
 and Continue Watching; artwork failure never blocks title data or playback.
+
+[Application updates and release feed contract](app-updates.md).

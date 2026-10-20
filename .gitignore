@@ -29,6 +29,7 @@ xcuserdata/
 *.p12
 *.pfx
 *.mobileprovision
+*.sparkle-private-key
 
 # Generated outputs and playback diagnostics
 artifacts/

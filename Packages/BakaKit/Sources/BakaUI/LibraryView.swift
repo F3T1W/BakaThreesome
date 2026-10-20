@@ -67,6 +67,9 @@ public struct LibraryView: View {
             .navigationTitle((selection ?? .resume).rawValue)
             .toolbar {
                 ToolbarItem {
+                    UpdateToolbarButton(model: services.updates)
+                }
+                ToolbarItem {
                     SettingsLink {
                         Label("Settings", systemImage: "gearshape")
                     }

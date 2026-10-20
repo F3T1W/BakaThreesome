@@ -15,6 +15,11 @@ struct BakaThreesomeApp: App {
                 }
         }
         .defaultSize(width: 1120, height: 760)
+        .commands {
+            CommandGroup(after: .appInfo) {
+                CheckForUpdatesButton(model: services.updates)
+            }
+        }
 
         Settings {
             AppSettingsView(services: services)

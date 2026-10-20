@@ -2,9 +2,11 @@ import Foundation
 import Matching
 import Observation
 import Playback
+import Updates
 
 @MainActor
 public final class ApplicationServices {
+    public let updates = AppUpdateModel()
     let diagnostics = DiagnosticsModel()
     let shikimori = ShikimoriModel()
     let artwork: AnimeArtworkModel

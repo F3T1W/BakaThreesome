@@ -114,3 +114,5 @@ Catalog, Watchlist and Continue Watching display adaptive poster grids with titl
 below the artwork. Poster metadata is fetched in batches through ShikimoriSharp
 and GraphQL; images share a cache, and missing artwork uses a placeholder.
 Details, Kinopub matching and resume actions remain on the cards and context menus.
+
+[Signed GitHub release updates and updater setup](docs/app-updates.md).

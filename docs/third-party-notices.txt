@@ -30,3 +30,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
+
+Sparkle - Copyright (c) Sparkle Project and contributors
+https://github.com/sparkle-project/Sparkle
+See Sparkle.LICENSE.txt in the Updates resource bundle for its complete license
+and third-party acknowledgments.
